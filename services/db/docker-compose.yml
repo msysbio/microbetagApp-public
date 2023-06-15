@@ -1,0 +1,15 @@
+version: '3.3'
+services:
+### MySQL Container
+  mysql:
+    build:
+      dockerfile: Dockerfile
+      args:
+        - MYSQL_DATABASE=${MYSQL_DATABASE}
+        - MYSQL_USER=${MYSQL_USER}
+        - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+        - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - /data/mysql/data/:/data/mysql/data:rw
+    ports:
+      - "${MYSQL_PORT}:3306"

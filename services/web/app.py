@@ -10,8 +10,14 @@ app = Flask(__name__)
 app.config.from_object("config.Config")
 db = SQLAlchemy(app)
 
-
-# cnx = mysql.connector.connect(user=os.getenv("MYSQL_USER"), password=os.getenv("MYSQL_PASSWORD"), host='localhost', database=os.getenv("MYSQL_DATABASE"))
+# Database connection configuration
+config = {
+    'user': 'root',
+    'password': 'pass',
+    'host': 'db',  # Replace with the actual database service name or IP address
+    'port': 3306,  # Replace with the actual port
+    'database': 'microbetagDB'
+}
 
 
 class User(db.Model):
@@ -26,21 +32,17 @@ class User(db.Model):
 
 
 def favorite_colors() -> List[Dict]:
-    # config = {
-    #     'user': 'root',
-    #     'password': 'root',
-    #     'host': 'db',
-    #     'port': '3306',
-    #     'database': 'knights'
-    # }
-    # connection = mysql.connector.connect(**config)
-    # cursor = connection.cursor()
-    # cursor.execute('SELECT * FROM favorite_colors')
-    # results = [{name: color} for (name, color) in cursor]
-    # cursor.close()
-    # connection.close()
 
-    results = [1, 2, 3, 4, 5, 5, 6, 67]
+    # Establish a database connection
+    cnx = mysql.connector.connect(**config)
+    cursor = cnx.cursor()
+
+    query = "SELECT * FROM test"
+    cursor.execute(query)
+
+    results = []
+    for row in cursor:
+        results.append(row)
 
     return results
 

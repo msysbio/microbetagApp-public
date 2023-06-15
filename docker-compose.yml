@@ -1,47 +1,74 @@
 version: '3.8'
 
 services:
+
+  # Servise for the application
   web:
+
     build:
       context: ./services/web
       dockerfile: Dockerfile.prod
+
     command: gunicorn --bind 0.0.0.0:5000 app:app #manage:app
     
     # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
     # so that each container will share a directory named "static":
     volumes:
       - static_volume:/app/static
+
     expose:
       - 5000
+
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+
     env_file:
-      - ./.env.dev   
-  #   depends_on:
-  #     - db
+      - ./.env.dev
 
+    ports:
+      - 8080:8080
 
+    depends_on:
+      - db
 
-  # db:
-  #   image: postgres:13
-  #   volumes:
-  #     - postgres_data_prod:/var/lib/postgresql/data/
-  #   env_file:
-  #     - ./.env.prod.db
+  # Servise for the database; the database will be built through this 
+  # and a backup will be stored periodically under /data/mysql/data
+  db:
 
+    build:
+      context: ./services/db
+      dockerfile: Dockerfile
+
+    env_file:
+      - ./services/db/.env
+
+    volumes:
+      - /data/mysql/data/:/data/mysql/data:rw
+
+    ports:
+      - "3306:3306"
+
+  # Servise for the server; it will list to the app at port 5000 (through the nginx.conf file)
+  # and it will serve its output through the web at port 1337
   nginx:
+
     build: ./services/nginx
+
     volumes:
       - static_volume:/services/web/static
       - ./services/nginx/certs/domain.crt:/etc/nginx/certs/certificate.crt
       - ./services/nginx/certs/new_domain.key:/etc/nginx/certs/certificate.key
       - ./services/nginx/certs/domain.csr:/etc/nginx/certs/certificate.csr
+
     ports:
       - 1337:80
-      - 1338:443
+      - 443:443
+
     depends_on:
       - web
 
 volumes:
-  # postgres_data_prod:
   static_volume:
 
 
