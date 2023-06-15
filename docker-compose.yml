@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./services/web
+      dockerfile: Dockerfile.prod
+    command: gunicorn --bind 0.0.0.0:5000 app:app #manage:app
+    
+    # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
+    # so that each container will share a directory named "static":
+    volumes:
+      - static_volume:/app/static
+    expose:
+      - 5000
+    env_file:
+      - ./.env.dev   
+  #   depends_on:
+  #     - db
+
+
+
+  # db:
+  #   image: postgres:13
+  #   volumes:
+  #     - postgres_data_prod:/var/lib/postgresql/data/
+  #   env_file:
+  #     - ./.env.prod.db
+
+  nginx:
+    build: ./services/nginx
+    volumes:
+      - static_volume:/services/web/static
+      - ./services/nginx/certs/domain.crt:/etc/nginx/certs/certificate.crt
+      - ./services/nginx/certs/new_domain.key:/etc/nginx/certs/certificate.key
+      - ./services/nginx/certs/domain.csr:/etc/nginx/certs/certificate.csr
+    ports:
+      - 1337:80
+      - 1338:443
+    depends_on:
+      - web
+
+volumes:
+  # postgres_data_prod:
+  static_volume:
+
+
+
+# Expose ports. Either specify both ports (HOST:CONTAINER), or just the container port (a random host port will be chosen).
+# Ports mentioned in docker-compose.yml will be shared among different services started by the docker-compose.
+# Ports will be exposed to the host machine to a random port or a given port.
+
+# Expose is defined as:
+# Expose ports without publishing them to the host machine - they’ll only be accessible to linked services. Only the internal port can be specified.
+
+# Ports are not exposed to host machines, only exposed to other services.
