@@ -1,0 +1,37 @@
+FROM nginx:alpine
+
+# Copy your web application files into the image
+#COPY index.html /usr/share/nginx/html
+
+# Copy the SSL certificate files into the image
+COPY certs/domain.crt /etc/nginx/certs/certificate.crt
+COPY certs/new_domain.key /etc/nginx/certs/certificate.key
+COPY certs/domain.csr /etc/nginx/certs/certificate.csr
+
+
+# Configure Nginx to use the SSL certificate
+# 80 port > http no certificate
+# 443 port > https needs certificate, if you type https you are asking for 443
+# ssl > private key, crt, I AM MISSING crs  
+#openssl req -new -newkey rsa:2048 -nodes -keyout mydomain.key -out mydomain.csr
+
+
+# server_name > domain name
+
+
+# the location points to the folder that when someones asks the ip this is going to be shown
+# root poits to what it will be shown with the initial domain name
+RUN echo "server { \
+    listen 443 ssl; \
+    server_name 134.58.253.57; \
+    ssl_certificate /etc/nginx/certs/certificate.crt; \
+    ssl_certificate_key /etc/nginx/certs/certificate.key; \
+    location / { \
+        root /usr/share/nginx/html; \
+        index index.html index.htm; \
+    } \
+}" > /etc/nginx/conf.d/default.conf
+
+# Expose the HTTPS port
+EXPOSE 443
+
