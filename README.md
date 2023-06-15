@@ -48,7 +48,6 @@ This option allows us to fire up several apps at the same time and this our data
 
 ## Links
 
-[Setting up and Running a MySQL Container](https://www.baeldung.com/ops/docker-mysql-container)
-
-
+- [Setting up and Running a MySQL Container](https://www.baeldung.com/ops/docker-mysql-container)
+- [Creating a Self-Signed Certificate With OpenSS](https://www.baeldung.com/openssl-self-signed-cert)
 
