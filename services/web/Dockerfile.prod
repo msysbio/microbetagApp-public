@@ -4,7 +4,6 @@
 
 FROM python:3.11.3-slim-buster as builder
 
-
 # install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc
@@ -55,9 +54,7 @@ RUN pip install --no-cache /wheels/*
 # copy project
 COPY . $APP_HOME
 
-# chown all the files to the app user
-RUN chown -R app:app $APP_HOME
-
-# change to the app user
-USER app
-
+# # chown all the files to the app user -- UNMUTE THIS ONCE WE ARE IN THE PRODUCTION STAGE
+# RUN chown -R app:app $APP_HOME
+# # change to the app user
+# USER app
