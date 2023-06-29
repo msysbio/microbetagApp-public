@@ -13,9 +13,9 @@ DROP DATABASE IF EXISTS microbetagDB;
 CREATE DATABASE microbetagDB; 
 USE microbetagDB;
 
--- ///////////////////////////////////////
--- TABLE RELATADE TO PHEND PREDICTIONS
--- ///////////////////////////////////////
+/* ///////////////////////////////////////
+	TABLE RELATED TO PHEND PREDICTIONS
+/////////////////////////////////////// */
 
 DROP TABLE IF EXISTS phenDB; 
 CREATE TABLE phenDB(
@@ -90,8 +90,6 @@ ROW_FORMAT=COMPRESSED;
 -- Disable keys and indexes
 ALTER TABLE phenDB DISABLE KEYS;
 
--- You need to be root to run the following line: sudo mysql  -p --local-infile
--- LOAD DATA LOCAL INFILE '/var/lib/mysql-files/gtdb_phen_predictions.tsv'
 LOAD DATA INFILE '/var/lib/mysql-files/gtdb_phen_predictions.tsv'
 INTO TABLE phenDB
 FIELDS TERMINATED BY '\t'
@@ -104,3 +102,68 @@ ALTER TABLE phenDB ENABLE KEYS;
 -- Build indexes for the gtdb ids
 CREATE INDEX idx_column ON phenDB (gtdbId);
 ANALYZE TABLE phenDB;
+
+
+/* /////////////////////////////////////////////
+	TABLEs RELATED TO PATHWAY COMPLEMENTARITIES
+//////////////////////////////////////////////// */
+
+-- Table for unique complementarity cases
+DROP TABLE IF EXISTS uniqueComplements; 
+CREATE TABLE uniqueComplements(
+    complementId INT AUTO_INCREMENT,
+    KoModuleId VARCHAR(7),
+    complement VARCHAR(200),
+    pathway VARCHAR(250),
+    PRIMARY KEY (complementId)
+);
+
+LOAD DATA INFILE '/var/lib/mysql-files/unique_complements.tsv'
+INTO TABLE uniqueComplements
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+-- remove new line characters
+UPDATE uniqueComplements SET pathway = REPLACE(REPLACE(pathway, '\r', ''), '\n', '');
+
+
+-- Table for GenomeId 2 NCBI TaxId 
+DROP TABLE IF EXISTS genome2taxNcbiId; 
+CREATE TABLE genome2taxNcbiId(
+    ncbiTaxId VARCHAR(13),
+	genomeId VARCHAR(20),
+    PRIMARY KEY (genomeId)
+);
+
+LOAD DATA INFILE '/var/lib/mysql-files/genomeId2ncbiTaxId.tsv'
+INTO TABLE genome2taxNcbiId
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+
+
+-- Table for pathway complementarities
+DROP TABLE IF EXISTS pathwayComplementarity;
+CREATE TABLE pathwayComplementarity(
+	beneficiaryGenome VARCHAR(15),
+	donorGenome VARCHAR(15),
+	complmentId INT(4),
+    FOREIGN KEY (beneficiaryGenome) REFERENCES genome2taxNcbiId(genomeId),
+    FOREIGN KEY (donorGenome) REFERENCES genome2taxNcbiId(genomeId),
+    FOREIGN KEY (complmentId) REFERENCES uniqueComplements(complementId)
+);
+
+-- ALTER TABLE pathwayComplementarity ADD PRIMARY KEY(beneficiaryGenome, donorGenome);
+
+LOAD DATA INFILE '/var/lib/mysql-files/complementarities/part_7_mapped_only_gtdb_genomes.tsv'
+INTO TABLE pathwayComplementarity
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+
+-- LOAD DATA INFILE '/var/lib/mysql-files/complementarities/part_4_mapped_only_gtdb_genomes.tsv'
+-- INTO TABLE pathwayComplementarity
+-- FIELDS TERMINATED BY '\t'
+-- LINES TERMINATED BY '\n'
+-- IGNORE 1 LINES;
+
