@@ -14,7 +14,7 @@ services:
     # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
     # so that each container will share a directory named "static":
     volumes:
-      - static_volume:/app/static
+      - ./services/db/data:/var/lib/mysql-files/:rw 
 
     expose:
       - 5000
@@ -56,7 +56,6 @@ services:
     build: ./services/nginx
 
     volumes:
-      - static_volume:/services/web/static
       - ./services/nginx/certs/domain.crt:/etc/nginx/certs/certificate.crt
       - ./services/nginx/certs/new_domain.key:/etc/nginx/certs/certificate.key
       - ./services/nginx/certs/domain.csr:/etc/nginx/certs/certificate.csr
@@ -68,16 +67,3 @@ services:
     depends_on:
       - web
 
-volumes:
-  static_volume:
-
-
-
-# Expose ports. Either specify both ports (HOST:CONTAINER), or just the container port (a random host port will be chosen).
-# Ports mentioned in docker-compose.yml will be shared among different services started by the docker-compose.
-# Ports will be exposed to the host machine to a random port or a given port.
-
-# Expose is defined as:
-# Expose ports without publishing them to the host machine - they’ll only be accessible to linked services. Only the internal port can be specified.
-
-# Ports are not exposed to host machines, only exposed to other services.
