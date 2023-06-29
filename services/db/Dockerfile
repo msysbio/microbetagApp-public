@@ -2,6 +2,8 @@
 FROM mysql:latest
 
 RUN microdnf install -y vim
+RUN microdnf install --assumeyes python3-pip
+RUN pip3.9 install mysql-connector-python
 
 RUN chown -R mysql:root /var/lib/mysql/ 
 
