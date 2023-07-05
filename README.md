@@ -1,4 +1,17 @@
 
+## Env
+
+I made a new file under  `/etc/docker/` called `daemon.json`:
+
+```bash
+u0156635@gbw-s-msysbio01:/etc/docker$ more daemon.json 
+{
+  "data-root": "/data/docker"
+
+}
+```
+
+
 ## Ports 
 
 I changed the mysql port of the vm to 4545 so I can have the 3306 for the container
@@ -13,7 +26,7 @@ Here is how:
 
 ```
 
-## To build the SSL keys 
+### To build the SSL keys 
 
 Follow the instructions [here](https://www.baeldung.com/openssl-self-signed-cert)
 and remove the pass phrase as shown [here](https://help.cloud66.com/docs/security/remove-passphrase).
@@ -41,8 +54,6 @@ docker-compose up
 ```
 
 This option allows us to fire up several apps at the same time and this our database too. 
-
-
 
 
 

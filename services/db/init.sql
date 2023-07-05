@@ -93,15 +93,14 @@ ALTER TABLE phenDB DISABLE KEYS;
 LOAD DATA INFILE '/var/lib/mysql-files/gtdb_phen_predictions.tsv'
 INTO TABLE phenDB
 FIELDS TERMINATED BY '\t'
-LINES TERMINATED BY '\n'
-IGNORE 1 LINES;
+LINES TERMINATED BY '\n';
 
 -- Enable again keys
 ALTER TABLE phenDB ENABLE KEYS;
 
--- Build indexes for the gtdb ids
-CREATE INDEX idx_column ON phenDB (gtdbId);
-ANALYZE TABLE phenDB;
+-- -- Build indexes for the gtdb ids
+-- CREATE INDEX idx_column ON phenDB (gtdbId);
+-- ANALYZE TABLE phenDB;
 
 
 /* /////////////////////////////////////////////
@@ -121,8 +120,8 @@ CREATE TABLE uniqueComplements(
 LOAD DATA INFILE '/var/lib/mysql-files/unique_complements.tsv'
 INTO TABLE uniqueComplements
 FIELDS TERMINATED BY '\t'
-LINES TERMINATED BY '\n'
-IGNORE 1 LINES;
+LINES TERMINATED BY '\n';
+
 -- remove new line characters
 UPDATE uniqueComplements SET pathway = REPLACE(REPLACE(pathway, '\r', ''), '\n', '');
 
@@ -138,8 +137,7 @@ CREATE TABLE genome2taxNcbiId(
 LOAD DATA INFILE '/var/lib/mysql-files/genomeId2ncbiTaxId.tsv'
 INTO TABLE genome2taxNcbiId
 FIELDS TERMINATED BY '\t'
-LINES TERMINATED BY '\n'
-IGNORE 1 LINES;
+LINES TERMINATED BY '\n';
 
 
 -- Table for pathway complementarities
@@ -147,19 +145,21 @@ DROP TABLE IF EXISTS pathwayComplementarity;
 CREATE TABLE pathwayComplementarity(
 	beneficiaryGenome VARCHAR(15),
 	donorGenome VARCHAR(15),
-	complmentId INT(4),
-    FOREIGN KEY (beneficiaryGenome) REFERENCES genome2taxNcbiId(genomeId),
-    FOREIGN KEY (donorGenome) REFERENCES genome2taxNcbiId(genomeId),
-    FOREIGN KEY (complmentId) REFERENCES uniqueComplements(complementId)
+	complmentId VARCHAR(1000)
+    -- FOREIGN KEY (beneficiaryGenome) REFERENCES genome2taxNcbiId(genomeId),
+    -- FOREIGN KEY (donorGenome) REFERENCES genome2taxNcbiId(genomeId),
+    -- FOREIGN KEY (complmentId) REFERENCES uniqueComplements(complementId)
 );
 
 -- ALTER TABLE pathwayComplementarity ADD PRIMARY KEY(beneficiaryGenome, donorGenome);
 
-LOAD DATA INFILE '/var/lib/mysql-files/complementarities/part_7_mapped_only_gtdb_genomes.tsv'
+LOAD DATA INFILE '/var/lib/mysql-files/complementarities/part_0_mapped_only_gtdb_genomes.tsv'
 INTO TABLE pathwayComplementarity
 FIELDS TERMINATED BY '\t'
-LINES TERMINATED BY '\n'
-IGNORE 1 LINES;
+LINES TERMINATED BY '\n';
+
+
+CREATE INDEX genome_pair ON pathwayComplementarity(beneficiaryGenome, donorGenome);
 
 -- LOAD DATA INFILE '/var/lib/mysql-files/complementarities/part_4_mapped_only_gtdb_genomes.tsv'
 -- INTO TABLE pathwayComplementarity
@@ -167,3 +167,10 @@ IGNORE 1 LINES;
 -- LINES TERMINATED BY '\n'
 -- IGNORE 1 LINES;
 
+SET @@GLOBAL.local_infile = 1;
+
+/* remember!
+run mysql like this: 
+mysql --local-infile -u username -p
+to enable LOCAL INFILE
+*/
