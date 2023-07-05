@@ -148,7 +148,10 @@ def upload():
         json_string = json.dumps(json_array)
         with open(ifile, "w") as outfile:
             outfile.write(json_string)
-            return 'JSONArray copied to the server successfully as file'
+            """this is until microbetag runs as expected"""
+            f = open("/var/tmp/dev_output.json", "r")
+            g = json.load(f)
+            return g
 
         """ Now you need to initiate a microbetag run.
         In the end, the file just uploaded will be deleted
