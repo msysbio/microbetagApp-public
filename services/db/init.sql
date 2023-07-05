@@ -7,6 +7,7 @@
 
 
 SET GLOBAL local_infile=ON;
+SET @@GLOBAL.local_infile = 1;
 -- OPT_LOCAL_INFILE=1;
 
 DROP DATABASE IF EXISTS microbetagDB;
@@ -98,9 +99,7 @@ LINES TERMINATED BY '\n';
 -- Enable again keys
 ALTER TABLE phenDB ENABLE KEYS;
 
--- -- Build indexes for the gtdb ids
--- CREATE INDEX idx_column ON phenDB (gtdbId);
--- ANALYZE TABLE phenDB;
+
 
 
 /* /////////////////////////////////////////////
@@ -146,12 +145,7 @@ CREATE TABLE pathwayComplementarity(
 	beneficiaryGenome VARCHAR(15),
 	donorGenome VARCHAR(15),
 	complmentId VARCHAR(1000)
-    -- FOREIGN KEY (beneficiaryGenome) REFERENCES genome2taxNcbiId(genomeId),
-    -- FOREIGN KEY (donorGenome) REFERENCES genome2taxNcbiId(genomeId),
-    -- FOREIGN KEY (complmentId) REFERENCES uniqueComplements(complementId)
 );
-
--- ALTER TABLE pathwayComplementarity ADD PRIMARY KEY(beneficiaryGenome, donorGenome);
 
 LOAD DATA INFILE '/var/lib/mysql-files/complementarities/part_0_mapped_only_gtdb_genomes.tsv'
 INTO TABLE pathwayComplementarity
@@ -167,7 +161,7 @@ CREATE INDEX genome_pair ON pathwayComplementarity(beneficiaryGenome, donorGenom
 -- LINES TERMINATED BY '\n'
 -- IGNORE 1 LINES;
 
-SET @@GLOBAL.local_infile = 1;
+
 
 /* remember!
 run mysql like this: 

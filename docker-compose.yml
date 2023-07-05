@@ -9,12 +9,13 @@ services:
       context: ./services/web
       dockerfile: Dockerfile.prod
 
-    command: gunicorn --bind 0.0.0.0:5000 app:app #manage:app
+    command: gunicorn --bind 0.0.0.0:5000 app:app 
     
     # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
     # so that each container will share a directory named "static":
     volumes:
       - ./services/db/data:/var/lib/mysql-files/:rw 
+      - ./services/web/static:/var/tmp/:rw
 
     expose:
       - 5000
