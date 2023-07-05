@@ -45,6 +45,7 @@ services:
 
     volumes:
       - ./services/db/data:/var/lib/mysql-files/:rw  # This `data` folder is a sym link to /data/mysql/data/microbetagDB
+      - ./services/db/tmp:/var/tmp:rw
 
     ports:
       - "3306:3306"
