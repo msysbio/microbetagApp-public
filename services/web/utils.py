@@ -108,7 +108,6 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
     for line in maps:
         module, mmap = line.split("\t")
         module_map[module[3:-1]] = mmap[1:-1]
-    print(module_map)
 
     # Make a url pointing at a colored kegg map based on what's on the beneficiary's genome and what it gets as complement from the donor
     tmp_compl = complements_for_a_pair_of_genomes.copy()

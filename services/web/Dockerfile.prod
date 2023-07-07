@@ -21,6 +21,8 @@ RUN flake8 --ignore=E501,F401 ./usr/src/app
 COPY ./requirements.txt .
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements.txt
 
+# Change perimissions for /opt
+RUN chmod +rx /opt
 
 #########
 # FINAL #
@@ -39,7 +41,6 @@ RUN addgroup --system app && adduser --system --group app
 ENV HOME=/home/app
 ENV APP_HOME=/home/app/web
 RUN mkdir $APP_HOME
-WORKDIR $APP_HOME
 
 # install dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends netcat vim
@@ -47,6 +48,19 @@ COPY --from=builder /usr/src/app/wheels /wheels
 COPY --from=builder /usr/src/app/requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache /wheels/*
+
+RUN apt-get install -y wget
+
+# install Julia and FlashWeave
+WORKDIR /opt
+RUN wget https://julialang-s3.julialang.org/bin/linux/x64/1.7/julia-1.7.1-linux-x86_64.tar.gz && \
+    tar -zxvf julia-1.7.1-linux-x86_64.tar.gz && \
+    echo "export PATH=/opt/julia-1.7.1/bin:$PATH" >> /home/.bashrc
+
+ENV PATH="/opt/julia-1.7.1/bin:${PATH}"
+
+# Get FlashWeave
+RUN /opt/julia-1.7.1/bin/julia -e 'using Pkg;Pkg.add("FlashWeave")'
 
 # copy project
 COPY . $APP_HOME
@@ -56,3 +70,5 @@ RUN chown -R app:app $APP_HOME
 
 # change to the app user
 USER app
+
+WORKDIR $APP_HOME

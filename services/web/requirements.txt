@@ -3,3 +3,4 @@ Flask-SQLAlchemy==3.0.3
 gunicorn==20.1.0
 psycopg2-binary==2.9.6
 mysql-connector-python==8.0.27
+pandas>=1.5.1
