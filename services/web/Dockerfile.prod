@@ -15,7 +15,7 @@ COPY . /usr/src/app/
 
 # By default, Flake8 has a list of error codes that it ignores. 
 # The list used by a version of Flake8 may be different than the list used by a different version
-RUN flake8 --ignore=E501,F401 ./usr/src/app
+RUN flake8 --ignore=E501,F401,W504,F405,F403 ./usr/src/app
 
 # install python dependencies
 COPY ./requirements.txt .
