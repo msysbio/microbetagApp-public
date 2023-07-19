@@ -9,7 +9,7 @@ services:
       context: ./services/web
       dockerfile: Dockerfile.prod
 
-    command: gunicorn --bind 0.0.0.0:5000 app:app 
+    command: gunicorn --bind 0.0.0.0:5000 app:app --timeout 3000
     
     # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
     # so that each container will share a directory named "static":
