@@ -6,3 +6,4 @@ mysql-connector-python==8.0.27
 pandas>=1.5.1
 PyYAML>=5.4.1
 networkx>=2.8.8
+biopython>=1.79

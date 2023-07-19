@@ -1,2 +1,3 @@
 services/db/data
 services/db/tmp
+__pycache__

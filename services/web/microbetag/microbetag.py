@@ -7,6 +7,7 @@ from microbetag.scripts.logger import *
 from microbetag.scripts.variables import *
 import os
 import sys
+import time
 
 version = "v0.1.0"
 license = ("GPLv3",)
@@ -30,12 +31,30 @@ author_email = "haris.zafeiropoulos@kuleuven.be"
 name = "microbetag"
 
 
-def main():
+def main(OUT_DIR, cfg, ABUNDANCE_TABLE_FILE=None, EDGE_LIST_FILE=None):
     """
     Setting logging; the logger variable comes from the logger.py script
     """
+    # time.sleep(60)
+    if cfg["taxonomy"] == "GTDB":
+        gtdb_accession_ncbi_tax_id = os.path.join(
+            MAPPINGS, "species2ncbiId2accession.tsv")
+    elif cfg["taxonomy"] == "dada2":
+        gtdb_accession_ncbi_tax_id = os.path.join(
+            MAPPINGS, "dada2ncbi2accession.tsv")
+    elif cfg["taxonomy"] == "qiime2":
+        gtdb_accession_ncbi_tax_id = os.path.join(
+            MAPPINGS, "qiime2species2ncbi2accession.tsv")
+    else:
+        gtdb_accession_ncbi_tax_id = os.path.join(
+            MAPPINGS, "gtdbSpecies2ncbiId2accession.tsv")
+
+    # COM_HEAD = ""
+    # COM_HEAD = '"' + "last_comment_line" + '"'
+
     # Using FileHandler writing log to file
     logfile = os.path.join(OUT_DIR, "log.txt")
+    open(logfile, "w")
     fh = logging.FileHandler(logfile)
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
@@ -62,35 +81,58 @@ def main():
     logging.info("Your command was: {}".format(" ".join(sys.argv)))
 
     """
+    STEP 0: Load vars
+    """
+    # FlashWeave
+    FLASHWEAVE_OUTPUT_DIR = os.path.join(OUT_DIR, "flashweave")
+    FLASHWEAVE_TMP_INPUT = os.path.join(
+        FLASHWEAVE_OUTPUT_DIR,
+        "abundance_table_flashweave_format.tsv")
+    FLASHWEAVE_EDGELIST = os.path.join(
+        FLASHWEAVE_OUTPUT_DIR,
+        "network_output.edgelist")
+
+    # FAPROTAX
+    FAPROTAX_OUTPUT_DIR = os.path.join(OUT_DIR, "faprotax")
+    FAPROTAX_FUNCT_TABLE = os.path.join(
+        FAPROTAX_OUTPUT_DIR, "functional_otu_table.tsv")
+    FAPROTAX_SUB_TABLES = os.path.join(FAPROTAX_OUTPUT_DIR, "sub_tables")
+
+    # PhenDB
+    PHEN_OUTPUT_DIR = os.path.join(OUT_DIR, "phen_predictions")
+
+    """
     STEP 1: OTU table preprocess
     """
-    if ABUNDANCE_TABLE:
+    if ABUNDANCE_TABLE_FILE:
 
-        abundance_table = is_tab_separated(ABUNDANCE_TABLE, TAX_COL)
+        abundance_table = is_tab_separated(ABUNDANCE_TABLE_FILE, TAX_COL)
         logging.info(
             "STEP 1: Assign NCBI Tax Id and GTDB reference genomes".center(
                 80, "*"))
-        if not EDGE_LIST:
+        if not EDGE_LIST_FILE:
 
             logging.info(
                 "The user has not provided an edge list. microbetag will build one using FlashWeaeve.")
             if not os.path.exists(FLASHWEAVE_OUTPUT_DIR):
                 os.mkdir(FLASHWEAVE_OUTPUT_DIR)
 
-            ext = ensure_flashweave_format(abundance_table, TAX_COL, OTU_COL)
+            ext = ensure_flashweave_format(abundance_table, TAX_COL, SEQ_COL, FLASHWEAVE_OUTPUT_DIR)
 
         else:
             ext = abundance_table.copy()
-            ext["microbetag_id"] = abundance_table[OTU_COL]
+            ext["microbetag_id"] = abundance_table[SEQ_COL]
 
         # Map taxonomies to ontology ids
         logging.info(
             "Get the NCBI Taxonomy id for those OTUs that have been assigned either at the species, the genus or the family level.")
         try:
             otu_taxid_level_repr_genome, repr_genomes_present = map_otu_to_ncbi_tax_level_and_id(
-                ext, TAX_COL, OTU_COL)
+                ext, TAX_COL, SEQ_COL, gtdb_accession_ncbi_tax_id)
         except BaseException:
-            logging.error("microbetag was not able to map your table's taxonomies to NCBI and GTDB ids. Check on how you describe your table. Also check whether you have set the edge_list parameter in the config file; if there is not an edge list, leave it blank.")
+            logging.error("""microbetag was not able to map your table's taxonomies to NCBI and GTDB ids.
+                           Check on how you describe your table.
+                           Also check whether you have set the EDGE_LIST_FILE parameter in the config file; if there is not an edge list, leave it blank.""")
             sys.exit(0)
 
         otu_taxid_level_repr_genome.to_csv(
@@ -98,34 +140,28 @@ def main():
                 FLASHWEAVE_OUTPUT_DIR,
                 "ncbi_parsed_otu.csv"),
             "\t")
-    """
+
     # STEP 2: Get co-occurrence network
-     if not EDGE_LIST:
+    if not EDGE_LIST_FILE:
 
         # Run FlashWeave
-
         logging.info("STEP 2: Get co-occurrence network".center(80, "*"))
 
         flashweave_params = [
             "julia", FLASHWEAVE_SCRIPT, FLASHWEAVE_OUTPUT_DIR, FLASHWEAVE_TMP_INPUT
         ]
         flashweave_command = " ".join(flashweave_params)
-        if os.system(flashweave_command) != 0:
-            logging.error("FlashWeave was not able to perform. Check whether installed.\
-                           You can either add FlashWeave or run microbetag as a Docker image. \
-                           Also, check if issue with your OTU/ASV column.")
-            sys.exit(0)
+        logging.info("Run FlashWeave")
+        os.system(flashweave_command)
 
         # Taxa pairs as NCBI Tax ids
         logging.info(
             "Map your edge list to NCBI Tax ids and keep only associations that both correspond to a such.")
-        edge_list = edge_list_of_ncbi_ids(
-            FLASHWEAVE_EDGELIST, otu_taxid_level_repr_genome)
+        edge_list = edge_list_of_ncbi_ids(FLASHWEAVE_EDGELIST, otu_taxid_level_repr_genome)
 
     # STEP 3: PhenDB
-
     logging.info("STEP 3: PhenDB ".center(80, "*"))
-    if PHEN_DB:
+    if cfg["phenDB"]:
 
         # Check connectivity to db
         if not check_connection_to_db(USER_NAME, PASSWORD, HOST, DB_NAME):
@@ -179,20 +215,19 @@ def main():
             rows=traits,
             filename=outfile)
 
-
     # STEP 4: FAPROTAX
-
     logging.info(
         "STEP 4: FAPROTAX database oriented analaysis".center(
             80, "*"))
-    if ABUNDANCE_TABLE:
+
+    if cfg["faprotax"] and ABUNDANCE_TABLE_FILE:
 
         if not os.path.exists(FAPROTAX_OUTPUT_DIR):
             os.mkdir(FAPROTAX_OUTPUT_DIR)
 
         faprotax_params = [
             "python3", FAPROTAX_SCRIPT,
-            "-i", ABUNDANCE_TABLE,
+            "-i", ABUNDANCE_TABLE_FILE,
             "-o", FAPROTAX_FUNCT_TABLE,
             "-g", FAPROTAX_DB,
             "-c", '"' + COM_CHAR + '"',
@@ -202,18 +237,21 @@ def main():
             "-s", FAPROTAX_SUB_TABLES,
         ]
 
-        if COM_HEAD:
-            faprotax_params = faprotax_params + \
-                ["--column_names_are_in", COM_HEAD]
+        # if COM_HEAD:
+        #     faprotax_params = faprotax_params + \
+        #         ["--column_names_are_in", COM_HEAD]
 
         faprotax_command = " ".join(faprotax_params)
 
         # Run FAPROTAX
         # In the sub tables files, in column 1 we have the taxonomy and in
         # column 2 the OTU ID.
-        if os.system(faprotax_command) != 0:
-            logging.error("\nSomething went wrong when running the BugBase analysis! Check how you describe your input table. Also, please make sure you have set the column_names_are_in parameter properly.")
-            sys.exit(0)
+        os.system(faprotax_command)
+        # if os.system(faprotax_command) != 0:
+        #     logging.error("""Something went wrong when running the FAPROTAX analysis!
+        #                     Check how you describe your input table.
+        #                     Also, please make sure you have set the column_names_are_in parameter properly.""")
+        #     sys.exit(0)
 
         path_to_subtables = os.path.join(BASE, FAPROTAX_SUB_TABLES)
         otu_faprotax_assignments = otu_faprotax_functions_assignment(
@@ -222,15 +260,14 @@ def main():
 
         # [TODO] Link OTU ID or the taxonomy to the GTDB ID if such!
 
-
-
+    """
     # STEP 5: BugBase
 
     logging.info("STEP 5: BugBase database oriented analaysis".center(80, "*"))
-    if BUGBASE and ABUNDANCE_TABLE:
+    if BUGBASE and ABUNDANCE_TABLE_FILE:
 
         # Make a copy of the otu table without the taxonomy column
-        f = open(ABUNDANCE_TABLE, "r")
+        f = open(ABUNDANCE_TABLE_FILE, "r")
         g = open(BUGBASE_TMP, "w")
         for line in f:
             g.write("\t".join(line.split("\t")[:-1]) + "\n")
@@ -311,6 +348,3 @@ def main():
 #     """
 #     logging.info("STEP 7: NetCooperate between species/strains paired nodes".center(80, "*"))
 #     # if NETCOOPERATE:
-
-
-main()
