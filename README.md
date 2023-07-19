@@ -61,5 +61,6 @@ This option allows us to fire up several apps at the same time and this our data
 
 [Setting up and Running a MySQL Container](https://www.baeldung.com/ops/docker-mysql-container)
 
-
+Challenges:
+[`argparse` in nginx](https://github.com/benoitc/gunicorn/issues/1867)
 

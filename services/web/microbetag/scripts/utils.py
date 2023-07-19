@@ -28,7 +28,7 @@ def count_comment_lines(my_abundance_table, my_taxonomy_column):
 
 
 def map_otu_to_ncbi_tax_level_and_id(
-        abundance_table, my_taxonomy_column, otu_identifier_column):
+        abundance_table, my_taxonomy_column, otu_identifier_column, gtdb_accession_ncbi_tax_id):
     """
     Parse user's OTU table and the Silva database to get to add 2 extra columns in the OTU table:
     1. the lowest taxonomic level of the taxonomy assigned in an OTU, for which an NCBI Taxonomy id exists (e.g., "genus")
@@ -58,11 +58,11 @@ def map_otu_to_ncbi_tax_level_and_id(
 
     # Read the species, genus and family files of Silva db with their NCBI IDs
     """
-   The SPECIES_NCBI_ID, GENERA_NCBI_IDS and FAMILIES_NCBI_IDS files are like this:
-   Species  ncbi_tax_id
-   D_6__Abiotrophia sp. oral clone OH2A       319434
-   """
-    gtdb_accession_ids = pd.read_csv(GTDB_ACCESSION_NCBI_TAX_IDS, sep="\t")
+    The SPECIES_NCBI_ID, GENERA_NCBI_IDS and FAMILIES_NCBI_IDS files are like this:
+    Species  ncbi_tax_id
+    D_6__Abiotrophia sp. oral clone OH2A       319434
+    """
+    gtdb_accession_ids = pd.read_csv(gtdb_accession_ncbi_tax_id, sep="\t")
     gtdb_accession_ids.columns = ["Species", "ncbi_tax_id", "gtdb_gen_repr"]
     gtdb_accession_ids["Species"].str.strip()
 
@@ -120,12 +120,11 @@ def map_otu_to_ncbi_tax_level_and_id(
         ["ncbi_tax_id_species", "ncbi_tax_level_species", "ncbi_tax_level_mspecies"], axis=1)
 
     """
-   REMEMBER!
-   There is no one-to-one relationship between a NCBI Taxonomy Id and a representative genome
-
-   We do not have a hit for ALL NCBI TAX IDs from the species found in our experiment, aka there s
-   no GTDB representative genome for all NCBI Taxonomy Ids, e.g.  Bradyrhizobium sp. J81, NCBI Tax Id: 656743
-   """
+    REMEMBER!
+    There is no one-to-one relationship between a NCBI Taxonomy Id and a representative genome
+    We do not have a hit for ALL NCBI TAX IDs from the species found in our experiment, aka there s
+    no GTDB representative genome for all NCBI Taxonomy Ids, e.g.  Bradyrhizobium sp. J81, NCBI Tax Id: 656743
+    """
 
     # Genera
     pd_genera = splitted_taxonomies[[
@@ -269,7 +268,7 @@ def is_tab_separated(my_abundance_table, my_taxonomy_column):
 
 
 def ensure_flashweave_format(
-        my_abundance_table, my_taxonomy_column, otu_identifier_column):
+        my_abundance_table, my_taxonomy_column, otu_identifier_column, outdir):
     """
     Build an OTU table that will be in a FlashWeave-based format.
     """
@@ -279,16 +278,12 @@ def ensure_flashweave_format(
     for col in float_col.columns.values:
         flashweave_table[col] = flashweave_table[col].astype('int64')
 
-    """
-   [TODO] If we come up with a microbetag database, here we need to assign to the "microbetag_id" variable
-   the microbetag db ids to the corresponding taxa BUT apparently, this we ll have to be moved AFTER getting the NCBI ids.
-   """
     flashweave_table[otu_identifier_column] = 'microbetag_' + \
         flashweave_table[otu_identifier_column].astype(str)
     my_abundance_table['microbetag_id'] = flashweave_table[otu_identifier_column]
 
     file_to_save = os.path.join(
-        FLASHWEAVE_OUTPUT_DIR,
+        outdir,
         "abundance_table_flashweave_format.tsv")
     flashweave_table.to_csv(file_to_save, sep='\t', index=False)
 

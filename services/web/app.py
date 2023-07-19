@@ -3,9 +3,10 @@ from werkzeug.utils import secure_filename
 import json
 import os
 import logging
-import pandas
-import utils
+import pandas as pd
+import microbetag.microbetag as microbetag
 import microbetag.scripts.db_functions as db_functions
+from datetime import datetime
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)s %(message)s',
@@ -54,48 +55,64 @@ def ncbi_ids_complements(beneficiary_ncbi_tax_id, donor_ncbi_tax_id):
 
 @app.route('/upload-abundance-table', methods=['GET', 'POST'])
 def upload():
-
     if request.method == 'POST':
 
-        import microbetag.microbetag as microbetag
-
-        if 'file' not in request.files:
-            flash('No file part')
-
-        elif 'file' in request.files:
-            file = request.files['file']
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        if 'file' in request.files:
+            tfile = request.files['file']
+            filename = secure_filename(tfile.filename)
+            tfile.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
             return 'File copied to the server successfully'
 
-        ifile = os.path.join(app.config['UPLOAD_FOLDER'], "users_abundance_table.tsv")
-
-        json_array = request.get_json()
-        json_string = json.dumps(json_array)
-
-        df = pandas.read_json(json_string)
-        first_col = df.columns[0]
-        last_col = df.columns[-1]
-        new_first = "seqId"
-        new_last = "taxonomy"
-        new = {first_col: new_first, last_col: new_last}
-        df = df.rename(columns=new)
-        df.to_csv(ifile, sep='\t', header=False, index=False)
-
-        # load arguments
-
-        # run microbetag
-        microbetag.main()
-
-        """this is until microbetag runs as expected"""
         f = open("/var/tmp/dev_output.json", "r")
         g = json.load(f)
 
         return g
 
-        """ Now you need to initiate a microbetag run.
-        In the end, the file just uploaded will be deleted
-        """
+
+@app.route('/upload-abundance-table-dev', methods=['GET', 'POST'])
+def upload_dev():
+
+    if request.method == 'POST':
+
+        # import microbetag.microbetag as microbetag
+
+        if 'file' in request.files:
+            tfile = request.files['file']
+            filename = secure_filename(tfile.filename)
+            tfile.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            return 'File copied to the server successfully'
+
+        # Create output dir for the session
+        now = datetime.now()
+        dt_string = now.strftime("%d-%m-%Y--%H.%M.%S")
+        out_dir = os.path.join(app.config['UPLOAD_FOLDER'], dt_string)
+        os.mkdir(out_dir)
+
+        # Parse user's input
+        json_array = request.get_json()
+
+        data = json_array["data"]
+        data = pd.DataFrame(data)  # pd.read_json(data)
+
+        data.iloc[0, 0] = "seqId"
+        data.iloc[0, -1] = "taxonomy"
+
+        arguments = json_array["inputParameters"]
+        arguments_list = ["input_category", "taxonomy", "phenDB", "faprotax", "netcooperate", "netcompt", "pathway_complement"]
+        args = {}
+        for i, j in zip(arguments_list, arguments):
+            if j == "true":
+                j = True
+            args[i] = j
+
+        # Write the user's abundance table as a .tsv file
+        abundance_table = os.path.join(out_dir, "abundance_table.tsv")
+        data.to_csv(abundance_table, sep='\t', header=False, index=False)
+
+        # run microbetag
+        annotated_network = microbetag.main(out_dir, args, abundance_table)
+
+        return "annotated_network not yet"
 
 
 if __name__ == '__main__':

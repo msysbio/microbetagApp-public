@@ -7,7 +7,9 @@ from .variables import *
 
 
 def check_connection_to_db(db_user, db_password, db_host, db_database):
-
+    """
+    Set a connection to the database
+    """
     try:
         db = mysql.connector.connect(
             user=db_user,
@@ -60,6 +62,9 @@ def query_to_microbetagDB(phrase):
 
 
 def get_phenDB_traits(genome_id):
+    """
+    Query to get the phenotypic traits for a genome id
+    """
     phrase = "SELECT * FROM phenDB WHERE gtdbId = '" + genome_id + "';"
     phendb_traits = list(query_to_microbetagDB(phrase)[0])
     phendb_traits = [
@@ -69,6 +74,9 @@ def get_phenDB_traits(genome_id):
 
 
 def get_column_names():
+    """
+    Get the column names of a database table
+    """
     phrase = "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='" +\
              DB_NAME + "' AND `TABLE_NAME`='phenDB';"
     colnames = query_to_microbetagDB(phrase)
@@ -169,8 +177,9 @@ def get_complements_for_pair_of_ncbiIds(
         for donor_genome in list(donors_genomes.values())[0]:
             pair_compl = get_complements_for_pair_of_genomes(
                 beneficiary_genome, donor_genome)
-            colored_pair_compl = build_kegg_urls(pair_compl)
-            complements[beneficiary_genome][donor_genome] = colored_pair_compl
+            if pair_compl is not None:
+                colored_pair_compl = build_kegg_urls(pair_compl)
+                complements[beneficiary_genome][donor_genome] = colored_pair_compl
             # tmp = {"beneficiary_genome": beneficiary_genome, "donor_genome": donor_genome, "potential complementarities": get_complements_for_pair_of_genomes(beneficiary_genome, donor_genome)}
 
     return complements
