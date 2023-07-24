@@ -7,7 +7,8 @@ import logging
 import os
 import sys
 from .variables import *
-import networkx as nx
+# import networkx as nx
+import json
 
 
 def count_comment_lines(my_abundance_table, my_taxonomy_column):
@@ -27,22 +28,21 @@ def count_comment_lines(my_abundance_table, my_taxonomy_column):
     return skip_rows
 
 
-def map_otu_to_ncbi_tax_level_and_id(
-        abundance_table, my_taxonomy_column, otu_identifier_column, gtdb_accession_ncbi_tax_id):
+def map_seq_to_ncbi_tax_level_and_id(
+        abundance_table, my_taxonomy_column, seqId, gtdb_accession_ncbi_tax_id):
     """
     Parse user's OTU table and the Silva database to get to add 2 extra columns in the OTU table:
     1. the lowest taxonomic level of the taxonomy assigned in an OTU, for which an NCBI Taxonomy id exists (e.g., "genus")
     2. the corresponding NCBI Taxonomy Id (e.g., "343")
 
-    [TODO] The code of this function can be more clear by writing mspecies, species and genera levels as the on of the family.
+    [TODO] The code of this function can be more clear by writing mspecies, species and genera levels as the one of the family.
     """
-    taxonomies = abundance_table.filter([otu_identifier_column,
+    taxonomies = abundance_table.filter([seqId,
                                          my_taxonomy_column,
                                          "microbetag_id"])
 
     # Split the taxonomy column and split it based on semicolumn!
-    splitted_taxonomies = taxonomies[my_taxonomy_column].str.split(
-        TAX_DELIM, expand=True)
+    splitted_taxonomies = taxonomies[my_taxonomy_column].str.split(TAX_DELIM, expand=True)
     splitted_taxonomies.columns = [
         "Domain",
         "Phylum",
@@ -51,7 +51,7 @@ def map_otu_to_ncbi_tax_level_and_id(
         "Family",
         "Genus",
         "Species"]
-    splitted_taxonomies[otu_identifier_column] = taxonomies[otu_identifier_column]
+    splitted_taxonomies[seqId] = taxonomies[seqId]
     splitted_taxonomies["microbetag_id"] = taxonomies["microbetag_id"]
 
     splitted_taxonomies_c = splitted_taxonomies.copy()
@@ -78,35 +78,37 @@ def map_otu_to_ncbi_tax_level_and_id(
     family_ncbi_id.columns = ['Family', 'ncbi_tax_id']
     family_ncbi_id['Family'].str.strip()
 
-    # Build a dataframe for the Species, Genus and Family taxonomies present
-    # on the OTU table along with their corresponding NCBI Tax IDs
+    """
+    Build a dataframe for the Species, Genus and Family taxonomies present
+    on the OTU table along with their corresponding NCBI Tax IDs
+    """
 
     # GTDB accession ids
     genomes_present = gtdb_accession_ids.merge(
         splitted_taxonomies,
         on=["Species"]
-    )[["ncbi_tax_id", "gtdb_gen_repr", otu_identifier_column]]
+    )[["ncbi_tax_id", "gtdb_gen_repr", seqId]]
 
     splitted_taxonomies = pd.merge(genomes_present, splitted_taxonomies,
-                                   on=otu_identifier_column, how='outer')
+                                   on=seqId, how='outer')
     splitted_taxonomies.loc[splitted_taxonomies["ncbi_tax_id"].notnull(
     ), "ncbi_tax_level"] = "mspecies"
 
-    mspecies = splitted_taxonomies[[otu_identifier_column, "gtdb_gen_repr"]]
+    mspecies = splitted_taxonomies[[seqId, "gtdb_gen_repr"]]
 
     # Species
     species_present = species_ncbi_id.merge(splitted_taxonomies.query('ncbi_tax_level != "mspecies"'),
                                             on=['Species'],
                                             suffixes=('_species', '_mspecies')
                                             )[
-        [otu_identifier_column, "ncbi_tax_id_species", "ncbi_tax_level"]
+        [seqId, "ncbi_tax_id_species", "ncbi_tax_level"]
     ]
 
     species_present.loc[species_present["ncbi_tax_level"] !=
                         "mspecies", "ncbi_tax_level"] = "species"
 
     splitted_taxonomies = pd.merge(splitted_taxonomies, species_present,
-                                   on=otu_identifier_column,
+                                   on=seqId,
                                    how="outer",
                                    suffixes=('_species', '_mspecies')
                                    )
@@ -128,7 +130,7 @@ def map_otu_to_ncbi_tax_level_and_id(
 
     # Genera
     pd_genera = splitted_taxonomies[[
-        otu_identifier_column, "ncbi_tax_level", "ncbi_tax_id", "gtdb_gen_repr", "Genus"]]
+        seqId, "ncbi_tax_level", "ncbi_tax_id", "gtdb_gen_repr", "Genus"]]
     genera_present = genera_ncbi_id.merge(
         pd_genera, on=['Genus'], suffixes=(
             "_gen", "_over"), how="right")
@@ -145,7 +147,7 @@ def map_otu_to_ncbi_tax_level_and_id(
         ["ncbi_tax_id_gen", "ncbi_tax_id_over", "Genus"], axis=1)
 
     # Families
-    pd_families = splitted_taxonomies[[otu_identifier_column, "Family"]]
+    pd_families = splitted_taxonomies[[seqId, "Family"]]
     families_present = family_ncbi_id.merge(
         pd_families, on=['Family'], how="right")
     families_present.loc[families_present["ncbi_tax_id"].notnull(
@@ -162,24 +164,26 @@ def map_otu_to_ncbi_tax_level_and_id(
     otu_taxid_level_repr_genome = pd.merge(
         splitted_taxonomies_c,
         families_present,
-        on=otu_identifier_column)
+        on=seqId)
     otu_taxid_level_repr_genome = pd.merge(
         otu_taxid_level_repr_genome,
         mspecies,
-        on=otu_identifier_column,
+        on=seqId,
         how="outer")
+
+    otu_taxid_level_repr_genome['ncbi_tax_id'] = otu_taxid_level_repr_genome['ncbi_tax_id'].astype(pd.Int64Dtype()).astype(str)
 
     repr_genomes_present = list(mspecies["gtdb_gen_repr"].dropna())
 
     return otu_taxid_level_repr_genome, repr_genomes_present
 
 
-def otu_faprotax_functions_assignment(path_to_subtables):
+def seqId_faprotax_functions_assignment(path_to_subtables):
     """
     Parse the sub tables of the faprotax analysis
-    to assign the biological processes related to each OTU
+    to assign the biological processes related to each sequence id
     """
-    otu_faprotax_assignments = {}
+    seqId_faprotax_assignments = {}
 
     for process_name in os.listdir(path_to_subtables):
 
@@ -189,61 +193,132 @@ def otu_faprotax_functions_assignment(path_to_subtables):
 
         for line in table_file[2:]:
 
-            otu_id = line.split("\t")[1]
+            seqId = line.split("\t")[1]
 
-            if otu_id not in otu_faprotax_assignments:
+            if seqId not in seqId_faprotax_assignments:
 
-                otu_faprotax_assignments[otu_id] = [process_name]
+                seqId_faprotax_assignments[seqId] = [process_name]
 
             else:
 
-                otu_faprotax_assignments[otu_id].append(process_name)
+                seqId_faprotax_assignments[seqId].append(process_name)
 
-    return otu_faprotax_assignments
+    return seqId_faprotax_assignments
 
 
-def build_annotated_graph(edgelist, otu2ncbi, **kwargs):
+def build_a_base_node(taxon, edge, taxonomy, side):
+    """
+    Builds a node for the base network
+    """
+    node = {}
+    node["data"] = {}
+    node["data"]["id"] = taxon
+    node["data"]["selected"] = False
+    node["data"]["taxonomy"] = taxonomy
+    node["data"]["degree_layout"] = 1
+    node["data"]["name"] = taxonomy.split(";")[-1]
+    node["data"]["NCBI-Tax-Id"] = edge["ncbi_tax_id_node_" + side]  # ) if not pd.isna(edge["ncbi_tax_id_node_" + side]) else edge["ncbi_tax_id_node_" + side]
+    node["data"]["GTDB-representative"] = edge["gtdb_gen_repr_node_" + side]
+    node["data"]["taxonomy-level"] = edge["ncbi_tax_level_node_" + side]
 
-    G = nx.Graph()
+    return node
+
+
+def build_base_graph(edgelist_as_a_list_of_dicts, microb_id_taxonomy):
+    """
+    Get a list of dictionaries where each dictionary is an edge and returns
+    the basenetwork in a JSON format.
+    """
+    base_network = {}
+    base_network["elements"] = {}
 
     nodes = []
     edges = []
 
-    for otu_id, ncbi_elements in otu2ncbi.items():
+    processed_nodes = set()
 
-        otu_id = str(otu_id)
+    counter = 1
 
-        node = {}
-        node["data"] = {}
-        node["data"]["id"] = otu_id
-        try:
-            node["data"]["ncbi-id"] = ncbi_elements[otu_id]["ncbi_tax_id"]
-        except BaseException:
-            node["data"]["ncbi-id"] = "NA"
+    for edge in edgelist_as_a_list_of_dicts:
 
-        for resource, annotations in kwargs.items():
-            if resource == "fapr":
-                try:
-                    node["data"]["faprotax-annotations"] = annotations[otu_id]
-                except BaseException:
-                    node["data"]["faprotax-annotations"] = "None"
-            """
-         when more resources are available, just expand this try-except case.
-         """
-        nodes.append(node)
+        taxon_a = edge["node_a"]  # microbetag_id
+        taxonomy_a = microb_id_taxonomy.loc[microb_id_taxonomy['microbetag_id'] == taxon_a, 'taxonomy'].item()
+        if taxon_a not in processed_nodes:
+            processed_nodes.add(taxon_a)
+            node_a = build_a_base_node(taxon_a, edge, taxonomy_a, "a")
+            nodes.append(node_a)
 
-    for association, edge_elements in edgelist.items():
+        taxon_b = edge["node_b"]  # microbetag_id
+        taxonomy_b = microb_id_taxonomy.loc[microb_id_taxonomy['microbetag_id'] == taxon_b, 'taxonomy'].item()
+        if taxon_b not in processed_nodes:
+            processed_nodes.add(taxon_b)
+            node_b = build_a_base_node(taxon_b, edge, taxonomy_b, "b")
+            nodes.append(node_b)
 
-        edge = {}
-        edge["data"] = {}
-        edge["data"]["id"] = association
-        edge["data"]["source"] = edge_elements["taxon_A"]
-        edge["data"]["target"] = edge_elements["taxon_B"]
-        if not EDGE_LIST:
-            edge["data"]["FlashWeave-weight"] = edge_elements["evidence"]
-        edges.append(edge)
+        new_edge = {}
+        new_edge["data"] = {}
+        new_edge["data"]["id"] = str(counter)
+        new_edge["data"]["source"] = taxon_a
+        new_edge["data"]["source-ncbi-tax-id"] = edge["ncbi_tax_id_node_a"]
+        new_edge["data"]["target"] = taxon_b
+        new_edge["data"]["target-ncbi-tax-id"] = edge["ncbi_tax_id_node_b"]
+        new_edge["data"]["selected"] = False
+        new_edge["data"]["shared_name"] = taxonomy_a.split(";")[-1] + "-" + taxonomy_b.split(";")[-1]
+        new_edge["data"]["SUID"] = str(counter)
+        new_edge["data"]["name"] = "co-occurrence"
+        new_edge["data"]["flashweave-score"] = edge["score"]
+        new_edge["selected"] = False
 
-    return G
+        edges.append(new_edge)
+        counter += 1
+
+    base_network["elements"]["nodes"] = nodes
+    base_network["elements"]["edges"] = edges
+
+    return base_network
+
+
+def annotate_network(base_network, config, ids_map, out_dir):
+    """
+
+    """
+    annotated_network = base_network.copy()
+
+    if config["phenDB"]:
+
+        df_traits_table = pd.read_csv(os.path.join(out_dir, "phen_predictions/phen_traits.tsv"), sep="\t")
+        for node in annotated_network["elements"]["nodes"]:
+            ncbiId = node["data"]["NCBI-Tax-Id"]
+            if ncbiId == "<NA>":
+                continue
+            if int(ncbiId) in df_traits_table['NCBI_ID'].values:
+                node_traits = df_traits_table.iloc[df_traits_table["NCBI_ID"].values == int(ncbiId)].to_dict()
+                node_traits = {key: list(value.values())[0] for key, value in node_traits.items()}
+                node["data"]["phenotypic-traits"] = node_traits
+
+    if config["faprotax"]:
+
+        assignments_per_seqId = seqId_faprotax_functions_assignment(os.path.join(out_dir, "faprotax/sub_tables/"))
+        assignments_per_seqId = {key: [value.rstrip('.txt').replace('_', ' ') for value in values] for key, values in assignments_per_seqId.items()}
+        for node in annotated_network["elements"]["nodes"]:
+            for seqId, assignments in assignments_per_seqId.items():
+                if seqId == node["data"]["id"]:
+                    node["data"]["faprotax-assignments"] = assignments
+
+    if config["pathway_complement"]:
+
+        complements_dict = json.load(open(os.path.join(out_dir, "path_compl/complements.json")))
+
+        for pair, complements in complements_dict.items():
+            ncbi_a, ncbi_b, = pair.split(",")
+            for edge in annotated_network["elements"]["edges"]:
+                if ncbi_a == edge["data"]["source-ncbi-tax-id"] and ncbi_b == edge["data"]["target-ncbi-tax-id"]:
+                    edge["source-to-target-complements"] = complements
+
+                if ncbi_a == edge["data"]["target-ncbi-tax-id"] and ncbi_b == edge["data"]["source-ncbi-tax-id"]:
+                    edge["target-to-source-complements"] = complements
+
+    return annotated_network
 
 
 def is_tab_separated(my_abundance_table, my_taxonomy_column):
@@ -268,7 +343,7 @@ def is_tab_separated(my_abundance_table, my_taxonomy_column):
 
 
 def ensure_flashweave_format(
-        my_abundance_table, my_taxonomy_column, otu_identifier_column, outdir):
+        my_abundance_table, my_taxonomy_column, seqId, outdir):
     """
     Build an OTU table that will be in a FlashWeave-based format.
     """
@@ -278,9 +353,8 @@ def ensure_flashweave_format(
     for col in float_col.columns.values:
         flashweave_table[col] = flashweave_table[col].astype('int64')
 
-    flashweave_table[otu_identifier_column] = 'microbetag_' + \
-        flashweave_table[otu_identifier_column].astype(str)
-    my_abundance_table['microbetag_id'] = flashweave_table[otu_identifier_column]
+    flashweave_table[seqId] = flashweave_table[seqId].astype(str)
+    my_abundance_table['microbetag_id'] = flashweave_table[seqId]
 
     file_to_save = os.path.join(
         outdir,
@@ -302,11 +376,11 @@ def edge_list_of_ncbi_ids(edgelist, abundance_table_with_ncbi_ids):
     pd_edgelist = pd.read_csv(edgelist, sep="\t", skiprows=2, header=None)
     pd_edgelist.columns = ["node_a", "node_b", "score"]
 
-    pd_edgelist["joint"] = pd_edgelist['node_a'].astype(
-        str) + ":" + pd_edgelist["node_b"]
+    pd_edgelist["joint"] = pd_edgelist['node_a'].astype(str) + ":" + pd_edgelist["node_b"]
 
     associated_pairs_node_a = pd.merge(pd_edgelist[["node_a", "joint"]], abundance_table_with_ncbi_ids[["ncbi_tax_id", "gtdb_gen_repr", "ncbi_tax_level", "microbetag_id"]],
                                        left_on='node_a', right_on='microbetag_id', how="inner").drop(["microbetag_id"], axis=1)
+
     associated_pairs_node_a.rename(columns={
         "ncbi_tax_level": "ncbi_tax_level_node_a",
         "gtdb_gen_repr": "gtdb_gen_repr_node_a",
@@ -315,18 +389,17 @@ def edge_list_of_ncbi_ids(edgelist, abundance_table_with_ncbi_ids):
 
     associated_pairs_node_b = pd.merge(pd_edgelist[["node_b", "joint", "score"]], abundance_table_with_ncbi_ids[["ncbi_tax_id", "gtdb_gen_repr", "ncbi_tax_level", "microbetag_id"]],
                                        left_on='node_b', right_on='microbetag_id', how="inner").drop(["microbetag_id"], axis=1)
+
     associated_pairs_node_b.rename(columns={
         "ncbi_tax_level": "ncbi_tax_level_node_b",
         "gtdb_gen_repr": "gtdb_gen_repr_node_b",
         "ncbi_tax_id": "ncbi_tax_id_node_b"
     }, inplace=True)
 
-    associated_pairs = pd.merge(
-        associated_pairs_node_a,
-        associated_pairs_node_b,
-        on="joint").drop(
-        ["joint"],
-        axis=1)
+    associated_pairs = pd.merge(associated_pairs_node_a, associated_pairs_node_b, on="joint").drop(["joint"], axis=1)
+
+    # associated_pairs['ncbi_tax_id_node_a'] = associated_pairs['ncbi_tax_id_node_a'].astype(pd.Int64Dtype())
+    # associated_pairs['ncbi_tax_id_node_b'] = associated_pairs['ncbi_tax_id_node_b'].astype(pd.Int64Dtype())
 
     return associated_pairs
 
@@ -336,8 +409,8 @@ def export_phen_traits_to_file(column_names, rows, filename):
         file.write('\t'.join(column_names) + '\n')
         for row in rows:
             file.write('\t'.join(row) + '\n')
+    return True
 
 
-def map_faprotax_traits_to_sp_dataframe(trait_file):
-
-    return 1
+def tuple_to_str(t):
+    return ','.join(map(str, t))

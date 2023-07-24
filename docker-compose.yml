@@ -9,12 +9,14 @@ services:
       context: ./services/web
       dockerfile: Dockerfile.prod
 
-    command: gunicorn --bind 0.0.0.0:5000 app:app --timeout 3000
+    # Keep in mind that the Gunicorn timeout value should be greater than or equal to the Nginx proxy_read_timeout value 
+    # to avoid premature termination of requests by Nginx.
+    command: gunicorn --bind 0.0.0.0:5000 app:app --timeout 3500
     
     # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
     # so that each container will share a directory named "static":
     volumes:
-      - ./services/db/data:/var/lib/mysql-files/:rw 
+      - ./services/db/data:/var/lib/mysql-files/:rw
       - ./services/web/static:/var/tmp/:rw
 
     expose:
