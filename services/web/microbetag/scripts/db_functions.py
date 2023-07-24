@@ -6,43 +6,17 @@ import mysql.connector
 from .variables import *
 
 
-def check_connection_to_db(db_user, db_password, db_host, db_database):
-    """
-    Set a connection to the database
-    """
-    try:
-        db = mysql.connector.connect(
-            user=db_user,
-            password=db_password,
-            host=db_host,
-            database=db_database)
-        cursor = db.cursor()
-        cursor.execute("SELECT VERSION()")
-        results = cursor.fetchone()
-
-        if results:
-            return True
-        else:
-            return False
-
-    except mysql.connector.Error:
-        return False
-
-
 def query_to_microbetagDB(phrase):
     """
     Function to get functional traits as assigned in a genome from the phenotrex software
     phenotrex.readthedocs.io/ and stored in the microbetagDB.
     """
     try:
-        cnx = mysql.connector.connect(
-            user=USER_NAME,
-            password=PASSWORD,
-            host=HOST,
-            database=DB_NAME)
+        cnx = mysql.connector.connect(user=USER_NAME, password=PASSWORD, host=HOST, database=DB_NAME)
         cnx.get_warnings = True
         cursor = cnx.cursor()
         cursor.execute(phrase)
+
         res = []
         for row in cursor:
             res.append(row)
@@ -84,7 +58,6 @@ def get_column_names():
     return colnames
 
 
-# HERE IS THE UTILS
 def execute(phrase):
     """
     Establish a database connection and perform an action
@@ -180,7 +153,6 @@ def get_complements_for_pair_of_ncbiIds(
             if pair_compl is not None:
                 colored_pair_compl = build_kegg_urls(pair_compl)
                 complements[beneficiary_genome][donor_genome] = colored_pair_compl
-            # tmp = {"beneficiary_genome": beneficiary_genome, "donor_genome": donor_genome, "potential complementarities": get_complements_for_pair_of_genomes(beneficiary_genome, donor_genome)}
 
     return complements
 
@@ -232,3 +204,97 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
         complements_for_a_pair_of_genomes[index][0] = compl
 
     return complements_for_a_pair_of_genomes
+
+
+def get_complements_of_list_of_pair_of_ncbiIds(ncbi_id_pairs):
+    """
+    Gets a list of dictionaries as input that describes the edges of a network and returns the complementarities
+    as a dictionary where a pair of ncbi ids is the key and a list with complementarities the value
+    e.g.: ()
+    This function is running as part of the microbetag pipeline while the others mostly support the microbetag API.
+    By running chunks of queries using the same cursor, we save quite some time.
+    """
+    set_of_ncbiids_of_interest = set()
+    list_of_non_usefules_ids = ["77133"]
+    pairs_of_interest = set()
+    for pair in ncbi_id_pairs:
+        taxon_a = str(pair["ncbi_tax_id_node_a"]).split(".")[0]
+        taxon_b = str(pair["ncbi_tax_id_node_b"]).split(".")[0]
+        if taxon_a in list_of_non_usefules_ids or taxon_b in list_of_non_usefules_ids:
+            continue
+        # we keep as a pair both a->b and b->a association
+        if pair["ncbi_tax_level_node_a"] == pair["ncbi_tax_level_node_b"] == "mspecies":
+            set_of_ncbiids_of_interest.add(taxon_a)
+            set_of_ncbiids_of_interest.add(taxon_b)
+            pairs_of_interest.add((taxon_a, taxon_b))
+            pairs_of_interest.add((taxon_b, taxon_a))
+
+    ncbiId_to_genomesIds_queries = []
+    for ncbiId in set_of_ncbiids_of_interest:
+        query = "".join(["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(ncbiId), ";"])
+        ncbiId_to_genomesIds_queries.append(query)
+
+    # Execute the queries
+    genomes = []
+    cnx, cursor = create_cursor()
+    for query in ncbiId_to_genomesIds_queries:
+        cursor.execute(query)
+        query_results = cursor.fetchall()
+        genomes.append({query.split(" ")[-1][:-1]: [x[0] for x in query_results]})
+
+    new_genomes = {}
+    for dictionary in genomes:
+        for key, value in dictionary.items():
+            new_genomes[key] = value
+
+    # Build the queries
+    complements_ids_queries = {}
+    for pair in list(pairs_of_interest):
+        ncbi_a = pair[0]
+        ncbi_b = pair[1]
+        for ncbi_a_genome in new_genomes[ncbi_a]:
+            for ncbi_b_genome in new_genomes[ncbi_b]:
+                q = query_for_getting_compl_ids(ncbi_a_genome, ncbi_b_genome)
+                if pair in complements_ids_queries:
+                    complements_ids_queries[pair].append(q)
+                else:
+                    complements_ids_queries[pair] = [q]
+
+    # Query to the database
+    cnx, cursor = create_cursor()
+    pairs_to_compl_ids = {}
+    for pair, queries in complements_ids_queries.items():
+        for query in queries:
+            cursor.execute(query)
+            query_result = cursor.fetchall()
+            if len(query_result) > 0:
+                complements_ids_list = query_result[0][0].split(",")
+                pairs_to_compl_ids[pair] = complements_ids_list
+
+    cnx, cursor = create_cursor()
+    pairs_complements = {}
+    for pair, complementIds in pairs_to_compl_ids.items():
+        for complementId in complementIds:
+            query = "".join(
+                ["SELECT KoModuleId, complement, pathway FROM uniqueComplements WHERE complementId = '", complementId, "';"])
+            cursor.execute(query)
+            query_result = cursor.fetchall()
+            colored_pair_compl = build_kegg_urls([query_result])[0][0]
+            if pair in pairs_complements:
+                pairs_complements[pair].append(colored_pair_compl)
+            else:
+                pairs_complements[pair] = [colored_pair_compl]
+
+    return pairs_complements
+
+
+def create_cursor():
+    cnx = mysql.connector.connect(user=USER_NAME, password=PASSWORD, host=HOST, database=DB_NAME)
+    cnx.get_warnings = True
+    cursor = cnx.cursor()
+    return cnx, cursor
+
+
+def query_for_getting_compl_ids(beneficiary, donor):
+    return "".join(['SELECT complmentId FROM pathwayComplementarity WHERE beneficiaryGenome = "', beneficiary,
+                    '" AND donorGenome = "', donor, '";'])

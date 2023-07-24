@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, flash, request, session
+from flask_caching import Cache
 from werkzeug.utils import secure_filename
 import json
 import os
@@ -7,6 +8,7 @@ import pandas as pd
 import microbetag.microbetag as microbetag
 import microbetag.scripts.db_functions as db_functions
 from datetime import datetime
+import time
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)s %(message)s',
@@ -23,6 +25,8 @@ app.debug = True
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1000 * 1000
 app.secret_key = "\xf0+\x91\xe0c\xb8ov\xf3c\xc7b#mS\xbc\xf1\xdd\xb2\x06\x8an*\xc0"
+
+cache = Cache(app, config={"CACHE_TYPE": "simple", "CACHE_DEFAULT_TIMEOUT": 20})
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -74,13 +78,14 @@ def upload_dev():
 
     if request.method == 'POST':
 
-        # import microbetag.microbetag as microbetag
+        # Generate a unique identifier for the request based on its content; an integer
+        request_id = hash(frozenset(request.form.items()))
 
-        if 'file' in request.files:
-            tfile = request.files['file']
-            filename = secure_filename(tfile.filename)
-            tfile.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            return 'File copied to the server successfully'
+        # Check if the request has already been processed recently (within 20 seconds; set in the cache above)
+        if cache.get(request_id):
+            # Return the cached response for the duplicate request
+            response = cache.get(request_id)
+            return jsonify({"status": "success", "data": response})
 
         # Create output dir for the session
         now = datetime.now()
@@ -112,7 +117,10 @@ def upload_dev():
         # run microbetag
         annotated_network = microbetag.main(out_dir, args, abundance_table)
 
-        return "annotated_network not yet"
+        # Cache the response and set the request_id as the cache key
+        # cache.set(request_id, annotated_network)
+
+        return annotated_network
 
 
 if __name__ == '__main__':
