@@ -11,7 +11,7 @@ services:
 
     # Keep in mind that the Gunicorn timeout value should be greater than or equal to the Nginx proxy_read_timeout value 
     # to avoid premature termination of requests by Nginx.
-    command: gunicorn --bind 0.0.0.0:5000 app:app --timeout 3500
+    command: gunicorn --bind 0.0.0.0:5000 app:app --workers 5 --timeout 3500 --graceful-timeout 3000
     
     # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
     # so that each container will share a directory named "static":
