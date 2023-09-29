@@ -34,26 +34,44 @@ and remove the pass phrase as shown [here](https://help.cloud66.com/docs/securit
 > `openssl rsa -in [original.key] -out [new.key]`
 
 
-## Build a Docker app with HTTPS 
+## Initiate the Docker app with HTTPS 
 
-### Option A: The `my_image` Docker image
+Init a tmux session: 
 
-You may have a look at the `Dockerfile.ssl_example` to see how one can come with a Docker image including the SSL files. 
-
-```
-docker run -p 443:443 my_image
+```bash
+tmux new -s dockerApp
 ```
 
+From within the tmux session, fire the `docker-compose` command:
 
-### Option B: The `docker-compose.yml` alternative
-
-
-To run this case:
-```
+```bash
 docker-compose up
 ```
 
-This option allows us to fire up several apps at the same time and this our database too. 
+This initiates 3 Docker containers at once: 
+- a database 
+- an ngninx 
+- the actual app 
+
+You should have now something like this:
+
+![tmux docker](figs/init-app.png)
+
+
+**Attention!**
+
+You need to **detach** from the tmux session; **not** exit! 
+If you exit, the `docer-compose` command will be shut and your app will go down. 
+To detach, you need to press:
+`ctrl+b` and then `d`.
+
+You can attach to your running session any time by runnint 
+```bash
+tmux attach -t dockerApp
+```
+
+
+
 
 
 
