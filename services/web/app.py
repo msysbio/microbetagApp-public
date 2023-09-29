@@ -39,7 +39,13 @@ def index() -> str:
 @app.route('/phen-traits/<string:gtdb_genome_id>', methods=['GET'])
 def phen_traits(gtdb_genome_id):
     """ Route to get phenotypic traits for a certain genome id based on phenDB classes """
-    return jsonify(db_functions.get_phendb_traits(gtdb_genome_id))
+    phen_traits = db_functions.get_phendb_traits(gtdb_genome_id)
+    if phen_traits == 0:
+        message = """No Phen traits for the genome id asked. Try replacing GCA with GCF or vice versa.\
+        If still no hits, then there is no relative info currently on microbetag DB.""" 
+        return message
+    else:
+        return jsonify(phen_traits)
 
 
 @app.route('/ncbiTaxId-to-genomeId/<int:ncbiTaxId>', methods=['GET'])
@@ -103,12 +109,15 @@ def upload_dev():
         data.iloc[0, -1] = "taxonomy"
 
         arguments = json_array["inputParameters"]
-        arguments_list = ["input_category", "taxonomy", "phenDB", "faprotax", "netcooperate", "netcompt", "pathway_complement"]
-        args = {}
-        for i, j in zip(arguments_list, arguments):
-            if j == "true":
-                j = True
-            args[i] = j
+
+        # CytoApp will provide a list of args while API is better to give a dictionary in terms of user friendliness
+        if isinstance(arguments, list):
+            arguments_list = ["input_category", "taxonomy", "phenDB", "faprotax", "pathway_complement", "seed_scores"]
+            args = {}
+            for i, j in zip(arguments_list, arguments):
+                if j == "true":
+                    j = True
+                args[i] = j
 
         # Write the user's abundance table as a .tsv file
         abundance_table = os.path.join(out_dir, "abundance_table.tsv")
