@@ -77,7 +77,8 @@ tmux attach -t dockerApp
 
 ## Links
 
-[Setting up and Running a MySQL Container](https://www.baeldung.com/ops/docker-mysql-container)
+- [Setting up and Running a MySQL Container](https://www.baeldung.com/ops/docker-mysql-container)
+- [Creating a Self-Signed Certificate With OpenSS](https://www.baeldung.com/openssl-self-signed-cert)
 
 Challenges:
 [`argparse` in nginx](https://github.com/benoitc/gunicorn/issues/1867)
