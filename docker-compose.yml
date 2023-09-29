@@ -9,12 +9,15 @@ services:
       context: ./services/web
       dockerfile: Dockerfile.prod
 
-    command: gunicorn --bind 0.0.0.0:5000 app:app #manage:app
+    # Keep in mind that the Gunicorn timeout value should be greater than or equal to the Nginx proxy_read_timeout value 
+    # to avoid premature termination of requests by Nginx.
+    command: gunicorn --bind 0.0.0.0:5000 app:app --workers 5 --timeout 3500 --graceful-timeout 3000
     
     # For production, add a volume to the web and nginx services in docker-compose.prod.yml 
     # so that each container will share a directory named "static":
     volumes:
-      - static_volume:/app/static
+      - ./services/db/data:/var/lib/mysql-files/:rw
+      - ./services/web/static:/var/tmp/:rw
 
     expose:
       - 5000
@@ -44,7 +47,8 @@ services:
       - ./services/db/.env
 
     volumes:
-      - /data/mysql/data/:/data/mysql/data:rw
+      - ./services/db/data:/var/lib/mysql-files/:rw  # This `data` folder is a sym link to /data/mysql/data/microbetagDB
+      - ./services/db/tmp:/var/tmp:rw
 
     ports:
       - "3306:3306"
@@ -56,7 +60,6 @@ services:
     build: ./services/nginx
 
     volumes:
-      - static_volume:/services/web/static
       - ./services/nginx/certs/domain.crt:/etc/nginx/certs/certificate.crt
       - ./services/nginx/certs/new_domain.key:/etc/nginx/certs/certificate.key
       - ./services/nginx/certs/domain.csr:/etc/nginx/certs/certificate.csr
@@ -68,16 +71,3 @@ services:
     depends_on:
       - web
 
-volumes:
-  static_volume:
-
-
-
-# Expose ports. Either specify both ports (HOST:CONTAINER), or just the container port (a random host port will be chosen).
-# Ports mentioned in docker-compose.yml will be shared among different services started by the docker-compose.
-# Ports will be exposed to the host machine to a random port or a given port.
-
-# Expose is defined as:
-# Expose ports without publishing them to the host machine - they’ll only be accessible to linked services. Only the internal port can be specified.
-
-# Ports are not exposed to host machines, only exposed to other services.
