@@ -1,6 +1,7 @@
 """
 Parse user's input OTU table
 """
+from .db_functions import *
 import pandas as pd
 import numpy as np
 import logging
@@ -9,6 +10,91 @@ import sys
 from .variables import *
 # import networkx as nx
 import json
+
+
+def annotate_network(base_network, config, ids_map, out_dir):
+    """
+    [TODO] add seed scores
+    """
+    annotated_network = base_network.copy()
+
+    if config["phenDB"]:
+
+        df_traits_table = pd.read_csv(os.path.join(out_dir, "phen_predictions/phen_traits.tsv"), sep="\t")
+        for node in annotated_network["elements"]["nodes"]:
+            ncbiId = node["data"]["NCBI-Tax-Id"]
+            if ncbiId == "<NA>":
+                continue
+            if int(ncbiId) in df_traits_table['NCBI_ID'].values:
+                node_traits = df_traits_table.iloc[df_traits_table["NCBI_ID"].values == int(ncbiId)].to_dict()
+                node_traits = {key: list(value.values())[0] for key, value in node_traits.items()}
+                node["data"]["phenotypic-traits"] = node_traits
+
+    if config["faprotax"]:
+
+        assignments_per_seqId = seqId_faprotax_functions_assignment(os.path.join(out_dir, "faprotax/sub_tables/"))
+        assignments_per_seqId = {key: [value.rstrip('.txt').replace('_', ' ') for value in values] for key, values in assignments_per_seqId.items()}
+        for node in annotated_network["elements"]["nodes"]:
+            for seqId, assignments in assignments_per_seqId.items():
+                if seqId == node["data"]["id"]:
+                    node["data"]["faprotax-assignments"] = assignments
+
+    if config["pathway_complement"]:
+
+        complements_dict = json.load(open(os.path.join(out_dir, "path_compl/complements.json")))
+
+        for pair, complements in complements_dict.items():
+            ncbi_a, ncbi_b, = pair.split(",")
+            for edge in annotated_network["elements"]["edges"]:
+                if ncbi_a == edge["data"]["source-ncbi-tax-id"] and ncbi_b == edge["data"]["target-ncbi-tax-id"]:
+                    edge["source-to-target-complements"] = complements
+
+                if ncbi_a == edge["data"]["target-ncbi-tax-id"] and ncbi_b == edge["data"]["source-ncbi-tax-id"]:
+                    edge["target-to-source-complements"] = complements
+
+    return annotated_network
+
+
+def export_species_level_associations(edgelist_as_a_list_of_dicts):
+    """
+    This functions gets as input the edges of the network as a list of dictionaries
+    checks the ncbi_tax_level of each node and in case where for both nodes it is species or strain
+    gets their corresponding GTDB genomes on microbetagDB
+    """
+
+    set_of_ncbiids_of_interest = set()
+    list_of_non_usefules_ids = ["77133"]
+    pairs_of_interest = set()
+    for pair in edgelist_as_a_list_of_dicts:
+
+        taxon_a = str(pair["ncbi_tax_id_node_a"]).split(".")[0]
+        taxon_b = str(pair["ncbi_tax_id_node_b"]).split(".")[0]
+        if taxon_a in list_of_non_usefules_ids or taxon_b in list_of_non_usefules_ids:
+            continue
+
+        # We keep as a pair both a->b and b->a association
+        if pair["ncbi_tax_level_node_a"] == pair["ncbi_tax_level_node_b"] == "mspecies":
+            set_of_ncbiids_of_interest.add(taxon_a)
+            set_of_ncbiids_of_interest.add(taxon_b)
+            pairs_of_interest.add((taxon_a, taxon_b))
+            pairs_of_interest.add((taxon_b, taxon_a))
+
+    ncbiId_to_genomesIds_queries = []
+    for ncbiId in set_of_ncbiids_of_interest:
+        query = "".join(["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(ncbiId), ";"])
+        ncbiId_to_genomesIds_queries.append(query)
+
+    # Execute the queries
+    genomes = []
+    cnx, cursor = create_cursor()
+    for query in ncbiId_to_genomesIds_queries:
+        cursor.execute(query)
+        query_results = cursor.fetchall()
+        genomes.append({query.split(" ")[-1][:-1]: [x[0] for x in query_results]})
+
+    related_genomes = {key: value for dictionary in genomes for key, value in dictionary.items()}
+
+    return pairs_of_interest, related_genomes
 
 
 def count_comment_lines(my_abundance_table, my_taxonomy_column):
@@ -276,49 +362,6 @@ def build_base_graph(edgelist_as_a_list_of_dicts, microb_id_taxonomy):
     base_network["elements"]["edges"] = edges
 
     return base_network
-
-
-def annotate_network(base_network, config, ids_map, out_dir):
-    """
-
-    """
-    annotated_network = base_network.copy()
-
-    if config["phenDB"]:
-
-        df_traits_table = pd.read_csv(os.path.join(out_dir, "phen_predictions/phen_traits.tsv"), sep="\t")
-        for node in annotated_network["elements"]["nodes"]:
-            ncbiId = node["data"]["NCBI-Tax-Id"]
-            if ncbiId == "<NA>":
-                continue
-            if int(ncbiId) in df_traits_table['NCBI_ID'].values:
-                node_traits = df_traits_table.iloc[df_traits_table["NCBI_ID"].values == int(ncbiId)].to_dict()
-                node_traits = {key: list(value.values())[0] for key, value in node_traits.items()}
-                node["data"]["phenotypic-traits"] = node_traits
-
-    if config["faprotax"]:
-
-        assignments_per_seqId = seqId_faprotax_functions_assignment(os.path.join(out_dir, "faprotax/sub_tables/"))
-        assignments_per_seqId = {key: [value.rstrip('.txt').replace('_', ' ') for value in values] for key, values in assignments_per_seqId.items()}
-        for node in annotated_network["elements"]["nodes"]:
-            for seqId, assignments in assignments_per_seqId.items():
-                if seqId == node["data"]["id"]:
-                    node["data"]["faprotax-assignments"] = assignments
-
-    if config["pathway_complement"]:
-
-        complements_dict = json.load(open(os.path.join(out_dir, "path_compl/complements.json")))
-
-        for pair, complements in complements_dict.items():
-            ncbi_a, ncbi_b, = pair.split(",")
-            for edge in annotated_network["elements"]["edges"]:
-                if ncbi_a == edge["data"]["source-ncbi-tax-id"] and ncbi_b == edge["data"]["target-ncbi-tax-id"]:
-                    edge["source-to-target-complements"] = complements
-
-                if ncbi_a == edge["data"]["target-ncbi-tax-id"] and ncbi_b == edge["data"]["source-ncbi-tax-id"]:
-                    edge["target-to-source-complements"] = complements
-
-    return annotated_network
 
 
 def is_tab_separated(my_abundance_table, my_taxonomy_column):
