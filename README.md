@@ -31,7 +31,7 @@ docker-compose up
 **Attention!**
 
 You need to **detach** from the tmux session; **not** exit!
-If you exit, the `docer-compose` command will be shut and your app will go down.
+If you exit, the `docker-compose` command will be shut and your app will go down.
 To detach, you need to press:
 `ctrl+b` and then `d`.
 
@@ -119,31 +119,11 @@ and remove the pass phrase as shown [here](https://help.cloud66.com/docs/securit
 > `openssl rsa -in [original.key] -out [new.key]`
 
 
-
-You should have now something like this:
-
-![tmux docker](figs/init-app.png)
-
-
-**Attention!**
-
-You need to **detach** from the tmux session; **not** exit! 
-If you exit, the `docer-compose` command will be shut and your app will go down. 
-To detach, you need to press:
-`ctrl+b` and then `d`.
-
-You can attach to your running session any time by runnint 
-```bash
-tmux attach -t dockerApp
-```
-
-
-
 ## Links
 
 - [Setting up and Running a MySQL Container](https://www.baeldung.com/ops/docker-mysql-container)
 - [Creating a Self-Signed Certificate With OpenSS](https://www.baeldung.com/openssl-self-signed-cert)
 
 Challenges:
-[`argparse` in nginx](https://github.com/benoitc/gunicorn/issues/1867)
+- [`argparse` in nginx](https://github.com/benoitc/gunicorn/issues/1867)
 
