@@ -101,7 +101,6 @@ ALTER TABLE phenDB ENABLE KEYS;
 
 
 
-
 /* /////////////////////////////////////////////
 	TABLEs RELATED TO PATHWAY COMPLEMENTARITIES
 //////////////////////////////////////////////// */
@@ -161,6 +160,18 @@ CREATE INDEX genome_pair ON pathwayComplementarity(beneficiaryGenome, donorGenom
 -- LINES TERMINATED BY '\n'
 -- IGNORE 1 LINES;
 
+
+
+/* /////////////////////////////////////////////
+	TABLEs RELATED TO SEED SCORES
+//////////////////////////////////////////////// */
+
+CREATE TABLE seedScores(
+	genomeA VARCHAR(15),
+	genomeB VARCHAR(15),
+	competitionScore DECIMAL(4,3),
+	complementaritScore DECIMAL(4,3)
+);
 
 
 /* remember!
