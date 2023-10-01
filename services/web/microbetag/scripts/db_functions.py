@@ -6,6 +6,14 @@ import mysql.connector
 from .variables import *
 
 
+# General
+def create_cursor():
+    cnx = mysql.connector.connect(user=USER_NAME, password=PASSWORD, host=HOST, database=DB_NAME)
+    cnx.get_warnings = True
+    cursor = cnx.cursor()
+    return cnx, cursor
+
+
 def query_to_microbetagDB(phrase):
     """
     Function to get functional traits as assigned in a genome from the phenotrex software
@@ -33,18 +41,6 @@ def query_to_microbetagDB(phrase):
     except mysql.connector.Error as err:
         print("Something went wrong: {}".format(err))
         print(phrase)
-
-
-def get_phenDB_traits(genome_id):
-    """
-    Query to get the phenotypic traits for a genome id
-    """
-    phrase = "SELECT * FROM phenDB WHERE gtdbId = '" + genome_id + "';"
-    phendb_traits = list(query_to_microbetagDB(phrase)[0])
-    phendb_traits = [
-        str(x) if isinstance(
-            x, decimal.Decimal) else x for x in phendb_traits]
-    return phendb_traits
 
 
 def get_column_names():
@@ -80,21 +76,7 @@ def execute(phrase):
     return rows
 
 
-def get_phendb_traits(gtdb_genome_id="GCA_018819265.1"):
-    """
-    Get phenotypical traits based on phenDB classes based on its GTDB representative genome
-    """
-    query = "".join(
-        ["SELECT * FROM phenDB WHERE gtdbId = '", gtdb_genome_id, "';"])
-    rows = execute(query)
-
-    query_colnames = "SHOW COLUMNS FROM phenDB;"
-    colnames = [list(x)[0] for x in execute(query_colnames)]
-    genomes_traits = {i: j for i, j in zip(colnames, rows[0])}
-
-    return genomes_traits
-
-
+# Mapping
 def get_genomes_for_ncbi_tax_id(ncbi_tax_id=1281578):
     """
     Get the genomes IDs that correspond to a NCBI Taxonomy Id and are present in the microbetagDB
@@ -106,19 +88,41 @@ def get_genomes_for_ncbi_tax_id(ncbi_tax_id=1281578):
     return {ncbi_tax_id: [x[0] for x in genome_ids]}
 
 
+# Phen related
+def get_phendb_traits(gtdb_genome_id="GCA_018819265.1"):
+    """
+    Get phenotypical traits based on phenDB classes based on its GTDB representative genome
+    """
+    query = "".join(
+        ["SELECT * FROM phenDB WHERE gtdbId = '", gtdb_genome_id, "';"])
+
+    rows = execute(query)
+
+    if len(rows) == 0:
+        return 0
+
+    query_colnames = "SHOW COLUMNS FROM phenDB;"
+    colnames = [list(x)[0] for x in execute(query_colnames)]
+    genomes_traits = {i: j for i, j in zip(colnames, rows[0])}
+
+    return genomes_traits
+
+
+# Pathway complementarity related
 def get_complements_for_pair_of_genomes(
         beneficiarys_genome_id="GCA_003184265.1", donors_genome_id="GCA_000015645.1"):
     """
     For a certain beneficiary genome and a certain donor genome, retrieve all complements
     available in the database.
     """
-    complements_ids_list_query = "".join(['SELECT complmentId FROM pathwayComplementarity WHERE beneficiaryGenome = "',
-                                          beneficiarys_genome_id,
-                                          '" AND donorGenome = "',
-                                          donors_genome_id,
-                                          '";'
-                                          ])
-    export = execute(complements_ids_list_query)
+    q = query_for_getting_compl_ids(beneficiarys_genome_id, donors_genome_id)
+    # complements_ids_list_query = "".join(['SELECT complmentId FROM pathwayComplementarity WHERE beneficiaryGenome = "',
+    #                                       beneficiarys_genome_id,
+    #                                       '" AND donorGenome = "',
+    #                                       donors_genome_id,
+    #                                       '";'
+    #                                       ])
+    export = execute(q)
     if len(export) > 0:
         complements_ids_list = export[0][0].split(",")
     else:
@@ -155,6 +159,98 @@ def get_complements_for_pair_of_ncbiIds(
                 complements[beneficiary_genome][donor_genome] = colored_pair_compl
 
     return complements
+
+
+def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genomes):
+    """
+    Gets a list of dictionaries as input that describes the edges of a network and returns the complementarities
+    as a dictionary where a pair of ncbi ids is the key and a list with complementarities the value
+    e.g.: ()
+    This function is running as part of the microbetag pipeline while the others mostly support the microbetag API.
+    By running chunks of queries using the same cursor, we save quite some time.
+    """
+    # set_of_ncbiids_of_interest = set()
+    # list_of_non_usefules_ids = ["77133"]
+    # pairs_of_interest = set()
+    # for pair in ncbi_id_pairs:
+    #     taxon_a = str(pair["ncbi_tax_id_node_a"]).split(".")[0]
+    #     taxon_b = str(pair["ncbi_tax_id_node_b"]).split(".")[0]
+    #     if taxon_a in list_of_non_usefules_ids or taxon_b in list_of_non_usefules_ids:
+    #         continue
+    #     # we keep as a pair both a->b and b->a association
+    #     if pair["ncbi_tax_level_node_a"] == pair["ncbi_tax_level_node_b"] == "mspecies":
+    #         set_of_ncbiids_of_interest.add(taxon_a)
+    #         set_of_ncbiids_of_interest.add(taxon_b)
+    #         pairs_of_interest.add((taxon_a, taxon_b))
+    #         pairs_of_interest.add((taxon_b, taxon_a))
+
+    # ncbiId_to_genomesIds_queries = []
+    # for ncbiId in set_of_ncbiids_of_interest:
+    #     query = "".join(["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(ncbiId), ";"])
+    #     ncbiId_to_genomesIds_queries.append(query)
+
+    # # Execute the queries
+    # genomes = []
+    # cnx, cursor = create_cursor()
+    # for query in ncbiId_to_genomesIds_queries:
+    #     cursor.execute(query)
+    #     query_results = cursor.fetchall()
+    #     genomes.append({query.split(" ")[-1][:-1]: [x[0] for x in query_results]})
+
+    # relative_genomes = {key: value for dictionary in genomes for key, value in dictionary.items()}
+    # # relative_genomes = {}
+    # # for dictionary in genomes:
+    # #     for key, value in dictionary.items():
+    # #         relative_genomes[key] = value
+
+    # Build the queries
+    complements_ids_queries = {}
+    for pair in list(pairs_of_interest):
+        ncbi_a = pair[0]
+        ncbi_b = pair[1]
+        for ncbi_a_genome in relative_genomes[ncbi_a]:
+            for ncbi_b_genome in relative_genomes[ncbi_b]:
+                q = query_for_getting_compl_ids(ncbi_a_genome, ncbi_b_genome)
+                if pair in complements_ids_queries:
+                    complements_ids_queries[pair].append(q)
+                else:
+                    complements_ids_queries[pair] = [q]
+
+    # Queries to the database to get complementarities
+    cnx, cursor = create_cursor()
+    pairs_to_compl_ids = {}
+    for pair, queries in complements_ids_queries.items():
+        for query in queries:
+            cursor.execute(query)
+            query_result = cursor.fetchall()
+            if len(query_result) > 0:
+                complements_ids_list = query_result[0][0].split(",")
+                """
+                [TODO] Check if correct; probably only last genome pair is returned for each ncbi id
+                """
+                pairs_to_compl_ids[pair] = complements_ids_list
+
+    # Queries to map unique complements ids to their extended. human readable version
+    cnx, cursor = create_cursor()
+    pairs_complements = {}
+    for pair, complementIds in pairs_to_compl_ids.items():
+        for complementId in complementIds:
+            query = "".join(
+                ["SELECT KoModuleId, complement, pathway FROM uniqueComplements WHERE complementId = '", complementId, "';"])
+            cursor.execute(query)
+            query_result = cursor.fetchall()
+            colored_pair_compl = build_kegg_urls([query_result])[0][0]
+            if pair in pairs_complements:
+                pairs_complements[pair].append(colored_pair_compl)
+            else:
+                pairs_complements[pair] = [colored_pair_compl]
+
+    return pairs_complements
+
+
+def query_for_getting_compl_ids(beneficiary, donor):
+    return "".join(['SELECT complmentId FROM pathwayComplementarity WHERE beneficiaryGenome = "', beneficiary,
+                    '" AND donorGenome = "', donor, '";'])
 
 
 def build_kegg_urls(complements_for_a_pair_of_genomes):
@@ -206,95 +302,85 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
     return complements_for_a_pair_of_genomes
 
 
-def get_complements_of_list_of_pair_of_ncbiIds(ncbi_id_pairs):
-    """
-    Gets a list of dictionaries as input that describes the edges of a network and returns the complementarities
-    as a dictionary where a pair of ncbi ids is the key and a list with complementarities the value
-    e.g.: ()
-    This function is running as part of the microbetag pipeline while the others mostly support the microbetag API.
-    By running chunks of queries using the same cursor, we save quite some time.
-    """
-    set_of_ncbiids_of_interest = set()
-    list_of_non_usefules_ids = ["77133"]
-    pairs_of_interest = set()
-    for pair in ncbi_id_pairs:
-        taxon_a = str(pair["ncbi_tax_id_node_a"]).split(".")[0]
-        taxon_b = str(pair["ncbi_tax_id_node_b"]).split(".")[0]
-        if taxon_a in list_of_non_usefules_ids or taxon_b in list_of_non_usefules_ids:
-            continue
-        # we keep as a pair both a->b and b->a association
-        if pair["ncbi_tax_level_node_a"] == pair["ncbi_tax_level_node_b"] == "mspecies":
-            set_of_ncbiids_of_interest.add(taxon_a)
-            set_of_ncbiids_of_interest.add(taxon_b)
-            pairs_of_interest.add((taxon_a, taxon_b))
-            pairs_of_interest.add((taxon_b, taxon_a))
-
-    ncbiId_to_genomesIds_queries = []
-    for ncbiId in set_of_ncbiids_of_interest:
-        query = "".join(["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(ncbiId), ";"])
-        ncbiId_to_genomesIds_queries.append(query)
-
-    # Execute the queries
-    genomes = []
-    cnx, cursor = create_cursor()
-    for query in ncbiId_to_genomesIds_queries:
-        cursor.execute(query)
-        query_results = cursor.fetchall()
-        genomes.append({query.split(" ")[-1][:-1]: [x[0] for x in query_results]})
-
-    new_genomes = {}
-    for dictionary in genomes:
-        for key, value in dictionary.items():
-            new_genomes[key] = value
+# Seed scores related
+def get_seed_scores_for_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genomes):
 
     # Build the queries
-    complements_ids_queries = {}
+    seed_scores_queries = {}
     for pair in list(pairs_of_interest):
         ncbi_a = pair[0]
         ncbi_b = pair[1]
-        for ncbi_a_genome in new_genomes[ncbi_a]:
-            for ncbi_b_genome in new_genomes[ncbi_b]:
-                q = query_for_getting_compl_ids(ncbi_a_genome, ncbi_b_genome)
-                if pair in complements_ids_queries:
-                    complements_ids_queries[pair].append(q)
+        for ncbi_a_genome in relative_genomes[ncbi_a]:
+            for ncbi_b_genome in relative_genomes[ncbi_b]:
+                q = query_for_getting_seed_scores(ncbi_a_genome, ncbi_b_genome)
+                if pair in seed_scores_queries:
+                    seed_scores_queries[pair].append(q)
                 else:
-                    complements_ids_queries[pair] = [q]
+                    seed_scores_queries[pair] = [q]
 
     # Query to the database
     cnx, cursor = create_cursor()
     pairs_to_compl_ids = {}
-    for pair, queries in complements_ids_queries.items():
+    for pair, queries in seed_scores_queries.items():
         for query in queries:
             cursor.execute(query)
             query_result = cursor.fetchall()
             if len(query_result) > 0:
                 complements_ids_list = query_result[0][0].split(",")
                 pairs_to_compl_ids[pair] = complements_ids_list
+    """
+    [TODO] add once db ready
+    """
 
-    cnx, cursor = create_cursor()
-    pairs_complements = {}
-    for pair, complementIds in pairs_to_compl_ids.items():
-        for complementId in complementIds:
-            query = "".join(
-                ["SELECT KoModuleId, complement, pathway FROM uniqueComplements WHERE complementId = '", complementId, "';"])
-            cursor.execute(query)
-            query_result = cursor.fetchall()
-            colored_pair_compl = build_kegg_urls([query_result])[0][0]
-            if pair in pairs_complements:
-                pairs_complements[pair].append(colored_pair_compl)
-            else:
-                pairs_complements[pair] = [colored_pair_compl]
-
-    return pairs_complements
+    return
 
 
-def create_cursor():
-    cnx = mysql.connector.connect(user=USER_NAME, password=PASSWORD, host=HOST, database=DB_NAME)
-    cnx.get_warnings = True
-    cursor = cnx.cursor()
-    return cnx, cursor
+def get_seed_scores_for_pair_of_ncbiIds(ncbiId_A, ncbiId_B):
+    genomes_for_species_A = get_genomes_for_ncbi_tax_id(ncbiId_A)
+    genomes_for_species_B = get_genomes_for_ncbi_tax_id(ncbiId_B)
+    seeds_A_B = []
+    seeds_B_A = []
+    for genome_A in list(genomes_for_species_A.values())[0]:
+        for genome_B in list(genomes_for_species_B.values())[0]:
+            case_seeds_A_B, case_seeds_B_A = get_seed_scores_for_pair_of_genomes(genome_A, genome_B)
+            seeds_A_B.append(case_seeds_A_B)
+            seeds_B_A.append(case_seeds_B_A)
+
+    return seeds_A_B, seeds_B_A
 
 
-def query_for_getting_compl_ids(beneficiary, donor):
-    return "".join(['SELECT complmentId FROM pathwayComplementarity WHERE beneficiaryGenome = "', beneficiary,
-                    '" AND donorGenome = "', donor, '";'])
+def get_seed_scores_for_pair_of_genomes(genome_A="GCA_003184265.1", genome_B="GCA_000015645.1"):
+
+    query_from_A_to_B, query_from_B_to_A = query_for_getting_seed_scores(genome_A, genome_B)
+
+    export = execute(query_from_A_to_B)
+    competition_score_A_B, complementarity_score_A_B = export[0][0], export[0][1]
+
+    export = execute(query_from_B_to_A)
+    competition_score_B_A, complementarity_score_B_A = export[0][0], export[0][1]
+
+    seeds_A_B = genome_A, genome_B, competition_score_A_B, complementarity_score_A_B
+    seeds_B_A = genome_B, genome_A, competition_score_B_A, complementarity_score_B_A
+
+    return seeds_A_B, seeds_B_A
+
+
+def query_for_getting_seed_scores(genome_A, genome_B):
+
+    query_from_A_to_B = "".join([
+        'SELECT Competition, Complementarity FROM seedScores WHERE genomeA = "',
+        genome_A,
+        '" AND genomeB = "',
+        genome_B,
+        '";'
+    ])
+
+    query_from_B_to_A = "".join([
+        'SELECT Competition, Complementarity FROM seedScores WHERE genomeA = "',
+        genome_B,
+        '" AND genomeB = "',
+        genome_A,
+        '";'
+    ])
+
+    return query_from_A_to_B, query_from_B_to_A
