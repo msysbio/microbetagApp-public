@@ -75,8 +75,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
     logging.info("Hello microbe-fun! microbetag is about to start!")
     logging.info("Your command was: {}".format(" ".join(sys.argv)))
 
-    # STEP 0: Load vars
-
+    # Load vars
     flashweave_output_dir = os.path.join(out_dir, "flashweave")
     flashweave_tmp_input = os.path.join(
         flashweave_output_dir,
@@ -91,14 +90,16 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
     faprotax_sub_tables = os.path.join(faprotax_output_dir, "sub_tables")
 
     phen_output_dir = os.path.join(out_dir, "phen_predictions")
-    pathway_complementarity = os.path.join(out_dir, "path_compl")
+    pathway_complementarity_dir = os.path.join(out_dir, "path_compl")
+    seed_scores_dir = os.path.join(out_dir, "seed_scores")
 
-    # STEP 1: abundance table preprocess
+    # Abundance table preprocess
     if abundance_table_file:
 
+        logging.info("STEP: Assign NCBI Tax Id and GTDB reference genomes".center(80, "*"))
+
         abundance_table = is_tab_separated(abundance_table_file, TAX_COL)
-        logging.info(
-            "STEP 1: Assign NCBI Tax Id and GTDB reference genomes".center(80, "*"))
+
         if not edge_list_file:
 
             logging.info(
@@ -121,7 +122,8 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
         except BaseException:
             logging.error("""microbetag was not able to map your table's taxonomies to NCBI and GTDB ids.
                            Check on how you describe your table.
-                           Also check whether you have set the edge_list_file parameter in the config file; if there is not an edge list, leave it blank.""")
+                           Also check whether you have set the edge_list_file parameter in the config file;
+                           if there is not an edge list, leave it blank.""")
             sys.exit(0)
 
         seqID_taxid_level_repr_genome.to_csv(
@@ -130,9 +132,10 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
                 "taxa_with_ndbiId_and_repr_gtdbIds.csv"),
             "\t")
 
-    # STEP 2: Get co-occurrence network
-    logging.info("STEP 2: Get co-occurrence network".center(80, "*"))
+    # Get co-occurrence network
     if not edge_list_file:
+
+        logging.info("STEP: Build co-occurrence network".center(80, "*"))
 
         flashweave_params = [
             "julia", FLASHWEAVE_SCRIPT, flashweave_output_dir, flashweave_tmp_input
@@ -149,9 +152,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
 
         # Example:
         # [{'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
-        #   'node_b': 'microbetag_21', 'ncbi_tax_id_node_b': 136703, 'gtdb_gen_repr_node_b': nan, 'ncbi_tax_level_node_b': 'species'},
-        # {'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
-        #  'node_b': 'microbetag_74', 'ncbi_tax_id_node_b': 77133, 'gtdb_gen_repr_node_b': 'GCA_903925685.1', 'ncbi_tax_level_node_b': 'mspecies'}
+        #   'node_b': 'microbetag_21', 'ncbi_tax_id_node_b': 136703, 'gtdb_gen_repr_node_b': nan, 'ncbi_tax_level_node_b': 'species'},.. {..}]
         edgelist_as_a_list_of_dicts = edge_list.applymap(lambda x: str(x) if pd.notna(x) else 'null').to_dict(orient="records")
 
         edge_list.to_csv("edgelist.csv", sep="\t")
@@ -165,9 +166,11 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
 
         logging.info("Base network has been built and saved.")
 
-    # STEP 3: PhenDB
-    logging.info("STEP 3: PhenDB ".center(80, "*"))
+    # Phen annotations
+
     if cfg["phenDB"]:
+
+        logging.info("STEP: PhenDB ".center(80, "*"))
 
         # Get phen traits for each GTDB genome present on your table
         feats = get_column_names()
@@ -215,10 +218,10 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
             rows=traits,
             filename=outfile)
 
-    # STEP 4: FAPROTAX
-    logging.info(
-        "STEP 4: FAPROTAX database oriented analaysis".center(80, "*"))
+    # FAPROTAX
     if cfg["faprotax"] and abundance_table_file:
+
+        logging.info("STEP: FAPROTAX database oriented analaysis".center(80, "*"))
 
         if not os.path.exists(faprotax_output_dir):
             os.mkdir(faprotax_output_dir)
@@ -245,73 +248,53 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
                             Also, please make sure you have set the column_names_are_in parameter properly.""")
             sys.exit(0)
 
-    # STEP 5: PATHWAY COMPLEMENTARITY
-    logging.info("STEP 5: Pathway complementarity".center(80, "*"))
+    # Get species/strain to species/strain associations
+    if cfg["pathway_complement"] or cfg["seed_scores"]:
+
+        logging.info("""For the pathway complementarity and the seed scores modules, we focus only on
+                    to species/strain to species/strain level associations of the network
+                    Let's find those pairs!""")
+
+        species_level_associations, genomes_of_species_nodes = export_species_level_associations(edgelist_as_a_list_of_dicts)
+
+    # Pathway complementarity
     if cfg["pathway_complement"]:
+
+        logging.info("STEP: Pathway complementarity".center(80, "*"))
 
         if edge_list_file:
             edge_list = edge_list_file.copy()
 
-        ncbi_id_pairs_with_complements = get_complements_of_list_of_pair_of_ncbiIds(edgelist_as_a_list_of_dicts)
-        os.mkdir(pathway_complementarity)
+        ncbi_id_pairs_with_complements = get_complements_of_list_of_pair_of_ncbiIds(species_level_associations, genomes_of_species_nodes)
+        os.mkdir(pathway_complementarity_dir)
 
-        with open(os.path.join(pathway_complementarity, "complements.json"), "w") as f:
+        with open(os.path.join(pathway_complementarity_dir, "complements.json"), "w") as f:
             ncbi_id_pairs_with_complements = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_complements.items()}
             json.dump(ncbi_id_pairs_with_complements, f)
 
-    logging.info("Pathway complementarity has been completed successfully.".center(80, "*"))
+        logging.info("Pathway complementarity has been completed successfully.".center(80, "*"))
 
-    # STEP : BUILD OUTPUT ANNOTATED NETWORK
+    # Seed - based scores
+    if cfg["seed_scores"]:
+        logging.info("""STEP: Competition and complementarity scores between associated species/strains based on their drafte genome-scale
+                   reconstructions and the Seed appraoch.""".center(80, "*"))
+
+        ncbi_id_pairs_with_seed_scores = get_seed_scores_for_list_of_pair_of_ncbiIds(species_level_associations, genomes_of_species_nodes)
+        os.mkdir(seed_scores_dir)
+
+        print(ncbi_id_pairs_with_seed_scores)
+
+        with open(os.path.join(seed_scores_dir, "seed_scores.json"), "w") as f:
+            # ncbi_id_pairs_with_seed_scores = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_seed_scores.items()}
+            json.dump(ncbi_id_pairs_with_seed_scores, f)
+
+        logging.info("Seed scores have been assigned successfully.". center(80, "*"))
+
+    # Build output; an annotated graph
+    logging.info("""STEP: Constructing the annotated network""")
     annotated_network = annotate_network(base_network, cfg, seqID_taxid_level_repr_genome, out_dir)
 
     with open(os.path.join(out_dir, "annotated_network.json"), "w") as f:
         json.dump(annotated_network, f)
 
     return annotated_network
-
-#     STEP 7: Net Cooperate
-#     logging.info("STEP 7: NetCooperate between species/strains paired nodes".center(80, "*"))
-#     if NETCOOPERATE:
-
-    """
-    # STEP 5: BugBase
-
-    logging.info("STEP 5: BugBase database oriented analaysis".center(80, "*"))
-    if BUGBASE and abundance_table_file:
-
-        # Make a copy of the otu table without the taxonomy column
-        f = open(abundance_table_file, "r")
-        g = open(BUGBASE_TMP, "w")
-        for line in f:
-            g.write("\t".join(line.split("\t")[:-1]) + "\n")
-
-        bugbase_params = [
-            "Rscript", BUGBASE_SCRIPT,
-            "-i", BUGBASE_TMP,
-            "-o", BUGBASE_OUTPUT,
-            "-a",
-        ]
-
-        if METADATA_FILE:
-            bugbase_params = bugbase_params + ["-m", METADATA_FILE]
-
-        bugbase_command = " ".join(bugbase_params)
-        print(bugbase_command)
-        print(">>>", BUGBASE_PATH)
-
-        # Run BugBase
-        logging.info(["Command to run: ", bugbase_command])
-        if os.system(bugbase_command) != 0:
-            logging.error(
-                "\nSomething went wrong when running the BugBase analysis!")
-            sys.exit(0)
-
-
-        # [TODO]: - Parse the bugbase/otu_contributions/contributing_otus.txt to assign features in the OTUs
-
-        os.remove(BUGBASE_TMP)
-
-        # for tr_file in os.listdir(BUGBASE_OUTPUT)
-
-    sys.exit(0)
-    """
