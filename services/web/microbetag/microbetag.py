@@ -34,18 +34,12 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
     """
     Setting logging; the logger variable comes from the logger.py script
     """
-    if cfg["taxonomy"] == "GTDB":
-        gtdb_accession_ncbi_tax_id = os.path.join(
-            MAPPINGS, "species2ncbiId2accession.tsv")
-    elif cfg["taxonomy"] == "dada2":
-        gtdb_accession_ncbi_tax_id = os.path.join(
-            MAPPINGS, "dada2ncbi2accession.tsv")
-    elif cfg["taxonomy"] == "qiime2":
-        gtdb_accession_ncbi_tax_id = os.path.join(
-            MAPPINGS, "qiime2species2ncbi2accession.tsv")
-    else:
-        gtdb_accession_ncbi_tax_id = os.path.join(
-            MAPPINGS, "gtdbSpecies2ncbiId2accession.tsv")
+    # if cfg["taxonomy"] == "GTDB":
+    #     gtdb_accession_ncbi_tax_id = os.path.join(
+    #         MAPPINGS, "gtdbSpecies2ncbiId2accession.tsv")
+    # else:
+    #     gtdb_accession_ncbi_tax_id = os.path.join(
+    #         MAPPINGS, "species2ncbiId2accession.tsv")
 
     # Using FileHandler writing log to file
     logfile = os.path.join(out_dir, "log.txt")
@@ -77,27 +71,26 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
 
     # Load vars
     flashweave_output_dir = os.path.join(out_dir, "flashweave")
-    flashweave_tmp_input = os.path.join(
-        flashweave_output_dir,
-        "abundance_table_flashweave_format.tsv")
-    flashweave_edgelist = os.path.join(
-        flashweave_output_dir,
-        "network_output.edgelist")
+    flashweave_tmp_input = os.path.join(flashweave_output_dir, "abundance_table_flashweave_format.tsv")
+    flashweave_edgelist = os.path.join(flashweave_output_dir,"network_output.edgelist")
 
     faprotax_output_dir = os.path.join(out_dir, "faprotax")
-    faprotax_funct_table = os.path.join(
-        faprotax_output_dir, "functional_otu_table.tsv")
+    faprotax_funct_table = os.path.join(faprotax_output_dir, "functional_otu_table.tsv")
     faprotax_sub_tables = os.path.join(faprotax_output_dir, "sub_tables")
 
     phen_output_dir = os.path.join(out_dir, "phen_predictions")
     pathway_complementarity_dir = os.path.join(out_dir, "path_compl")
     seed_scores_dir = os.path.join(out_dir, "seed_scores")
 
+    if cfg["delimiter"]:
+        tax_delim = cfg["delimiter"]
+
     # Abundance table preprocess
     if abundance_table_file:
 
         logging.info("STEP: Assign NCBI Tax Id and GTDB reference genomes".center(80, "*"))
 
+        # Abundance table as a pd dataframe
         abundance_table = is_tab_separated(abundance_table_file, TAX_COL)
 
         if not edge_list_file:
@@ -107,6 +100,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
             if not os.path.exists(flashweave_output_dir):
                 os.mkdir(flashweave_output_dir)
 
+            # ext remains a pd dataframe
             ext = ensure_flashweave_format(abundance_table, TAX_COL, SEQ_COL, flashweave_output_dir)
 
         else:
@@ -117,7 +111,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
         logging.info(
             "Get the NCBI Taxonomy id for those OTUs that have been assigned either at the species, the genus or the family level.")
         try:
-            seqID_taxid_level_repr_genome, repr_genomes_present = map_seq_to_ncbi_tax_level_and_id(ext, TAX_COL, SEQ_COL, gtdb_accession_ncbi_tax_id)
+            seqID_taxid_level_repr_genome, repr_genomes_present = map_seq_to_ncbi_tax_level_and_id(ext, TAX_COL, SEQ_COL, cfg["taxonomy"], tax_delim)
 
         except BaseException:
             logging.error("""microbetag was not able to map your table's taxonomies to NCBI and GTDB ids.
@@ -290,9 +284,25 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
 
         logging.info("Seed scores have been assigned successfully.". center(80, "*"))
 
+    if cfg["manta"]:
+        if not edge_list_file:
+            logging.info("""STEP: network clustering using manta and the abundance table""".center(80, "*"))
+
+            # fix input data  
+            os.system("sed  '1,2d'  flashweave/network_detailed_output.edgelist  > edgelist_for_manta.txt")
+
+            # 
+
+            manta_params = [
+                "manta",
+                "-i", "edgelist_for_manta.txt"
+            ]
+
+
     # Build output; an annotated graph
     logging.info("""STEP: Constructing the annotated network""")
     annotated_network = annotate_network(base_network, cfg, seqID_taxid_level_repr_genome, out_dir)
+
 
     with open(os.path.join(out_dir, "annotated_network.json"), "w") as f:
         json.dump(annotated_network, f)
