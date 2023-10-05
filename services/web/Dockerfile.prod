@@ -62,6 +62,18 @@ ENV PATH="/opt/julia-1.7.1/bin:${PATH}"
 # Get FlashWeave
 RUN /opt/julia-1.7.1/bin/julia -e 'using Pkg;Pkg.add("FlashWeave")'
 
+# Get NCBI taxdump
+WORKDIR /opt/ncbi
+RUN wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz && \
+    tar -zxvf taxdump.tar.gz && \
+    mv nodes.dmp tmp && \
+    rm *.dmp *.tar.gz &&\
+    mv tmp nodes.tmp
+
+# Get manta and fuzz
+WORKDIR $APP_HOME
+RUN python -m pip install git+https://github.com/ramellose/manta.git && fuzzywuzzy
+
 # copy project
 COPY . $APP_HOME
 
