@@ -105,12 +105,15 @@ def upload_dev():
         data = json_array["data"]
         data = pd.DataFrame(data)  # pd.read_json(data)
 
+        metadata = json_array["metadata"]
+
         data.iloc[0, 0] = "seqId"
         data.iloc[0, -1] = "taxonomy"
 
         # CytoApp will provide a list of args while API is better to give a dictionary in terms of user friendliness
         if isinstance(json_array["inputParameters"], list):
-            arguments_list = ["input_category", "taxonomy", "phenDB", "faprotax", "pathway_complement", "seed_scores"]
+            arguments_list = ["input_category", "taxonomy", "delimiter", "sensitive", "heterogeneous", 
+                "phenDB", "faprotax", "pathway_complement", "seed_scores", "manta"]
             args = {}
             for i, j in zip(arguments_list, json_array["inputParameters"]):
                 if j == "true":
@@ -123,11 +126,36 @@ def upload_dev():
         abundance_table = os.path.join(out_dir, "abundance_table.tsv")
         data.to_csv(abundance_table, sep='\t', header=False, index=False)
 
+        if metadata:
+            # [TODO]: check if an empty metadata entry is a nonetype or a string of 0 length 
+            metadata_table = os.path.join(out_dir, "metadata.tsv")
+            metadata.to_csv(metadata_table, sep="\t", header=False, index=False)
+
         # run microbetag
         annotated_network = microbetag.main(out_dir, args, abundance_table)
 
         # Cache the response and set the request_id as the cache key
         # cache.set(request_id, annotated_network)
+
+
+        # Zip file Initialization and you can change the compression type
+        zipfolder = zipfile.ZipFile('microbetag.zip','w', compression = zipfile.ZIP_STORED)
+
+        # zip all the files which are inside in the folder
+        for root,dirs, files in os.walk(out_dir):
+            for file in files:
+                zipfolder.write(os.path.join(out_dir,file))
+        zipfolder.close()
+
+        return send_file('microbetag.zip',
+                mimetype = 'zip',
+                attachment_filename= 'microbetag.zip',
+                as_attachment = True)
+
+        # Delete the zip file if not needed
+        os.remove("microbetag.zip")
+
+
 
         return annotated_network
 
