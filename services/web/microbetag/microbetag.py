@@ -30,17 +30,10 @@ author_email = "haris.zafeiropoulos@kuleuven.be"
 name = "microbetag"
 
 
-def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
+def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_file=None):
     """
     Setting logging; the logger variable comes from the logger.py script
     """
-    # if cfg["taxonomy"] == "GTDB":
-    #     gtdb_accession_ncbi_tax_id = os.path.join(
-    #         MAPPINGS, "gtdbSpecies2ncbiId2accession.tsv")
-    # else:
-    #     gtdb_accession_ncbi_tax_id = os.path.join(
-    #         MAPPINGS, "species2ncbiId2accession.tsv")
-
     # Using FileHandler writing log to file
     logfile = os.path.join(out_dir, "log.txt")
     open(logfile, "w")
@@ -63,16 +56,10 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
     logger.addHandler(fh)
     logger.addHandler(eh)
 
-    """
-    Welcome message and arguments values
-    """
-    logging.info("Hello microbe-fun! microbetag is about to start!")
-    logging.info("Your command was: {}".format(" ".join(sys.argv)))
-
     # Load vars
     flashweave_output_dir = os.path.join(out_dir, "flashweave")
     flashweave_tmp_input = os.path.join(flashweave_output_dir, "abundance_table_flashweave_format.tsv")
-    flashweave_edgelist = os.path.join(flashweave_output_dir,"network_output.edgelist")
+    flashweave_edgelist = os.path.join(flashweave_output_dir, "network_output.edgelist")
 
     faprotax_output_dir = os.path.join(out_dir, "faprotax")
     faprotax_funct_table = os.path.join(faprotax_output_dir, "functional_otu_table.tsv")
@@ -82,8 +69,31 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
     pathway_complementarity_dir = os.path.join(out_dir, "path_compl")
     seed_scores_dir = os.path.join(out_dir, "seed_scores")
 
-    if cfg["delimiter"]:
-        tax_delim = cfg["delimiter"]
+    # Fix arguments
+    default_args = {
+        "get_children": True, 
+        "sensitive": "true", 
+        "heterogeneous": "false", 
+        "phenDB": True, 
+        "faprotax": True,
+        "pathway_complement": True, 
+        "seed_scores": False, 
+        "manta": False
+    }
+    for i in list(default_args.keys()):
+        if i not in list(cfg.keys()):
+            if i == "delimiter":
+                return "You have not provided a taxonomy delimiter. microbetag will exit. Please set one and try again."
+            cfg[i] = default_args[i]
+
+        elif i == "sensitive" or i == "heterogeneous":
+            if cfg[i]:
+                cfg[i] = "true"
+            else:
+                cfg[i] = "false"
+
+    if metadata_file is None:
+        metadata_file = "false"
 
     # Abundance table preprocess
     if abundance_table_file:
@@ -111,7 +121,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
         logging.info(
             "Get the NCBI Taxonomy id for those OTUs that have been assigned either at the species, the genus or the family level.")
         try:
-            seqID_taxid_level_repr_genome, repr_genomes_present = map_seq_to_ncbi_tax_level_and_id(ext, TAX_COL, SEQ_COL, cfg["taxonomy"], tax_delim)
+            seqID_taxid_level_repr_genome, repr_genomes_present, children_df = map_seq_to_ncbi_tax_level_and_id(ext, TAX_COL, SEQ_COL, cfg["taxonomy"], cfg["delimiter"], cfg["get_children"])
 
         except BaseException:
             logging.error("""microbetag was not able to map your table's taxonomies to NCBI and GTDB ids.
@@ -132,7 +142,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
         logging.info("STEP: Build co-occurrence network".center(80, "*"))
 
         flashweave_params = [
-            "julia", FLASHWEAVE_SCRIPT, flashweave_output_dir, flashweave_tmp_input
+            "julia", FLASHWEAVE_SCRIPT, flashweave_output_dir, flashweave_tmp_input, str(cfg["sensitive"]), str(cfg["heterogeneous"]), metadata_file
         ]
         flashweave_command = " ".join(flashweave_params)
         logging.info("Run FlashWeave")
@@ -161,7 +171,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
         logging.info("Base network has been built and saved.")
 
     # Phen annotations
-
+    print(repr_genomes_present)
     if cfg["phenDB"]:
 
         logging.info("STEP: PhenDB ".center(80, "*"))
@@ -171,37 +181,30 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
         feats.insert(1, "NCBI_ID")
         feats.insert(1, "Species")
         traits = []
+
         for gtdb_id in set(repr_genomes_present):
-            check = True
-            try:
-                r = get_phenDB_traits(gtdb_id)
-            except BaseException:
-                check = False
-            if not check:
-                if gtdb_id[:3] == "GCA":
-                    try:
-                        r = get_phenDB_traits(gtdb_id.replace("GCA", "GCF"))
-                        check = True
-                    except BaseException:
-                        pass
-                else:
-                    try:
-                        r = get_phenDB_traits(gtdb_id.replace("GCF", "GCA"))
-                    except BaseException:
-                        pass
-            if check:
-                tr = seqID_taxid_level_repr_genome.loc[seqID_taxid_level_repr_genome["gtdb_gen_repr"] == gtdb_id, [
-                    "Species", "ncbi_tax_id"]]
-                sp = tr.iloc[0, 0]
+
+            phen_traits_dict, gtdb_genome = get_phendb_traits(gtdb_id)
+            if phen_traits_dict != 0:
+                tr = seqID_taxid_level_repr_genome.loc[seqID_taxid_level_repr_genome["gtdb_gen_repr"] == gtdb_id, ["extendedSpecies", "ncbi_tax_id"]]
+                try:
+                    sp = tr.iloc[0, 0]
+                except TypeError:
+                    return 0
                 ncbiId = str(int(tr.iloc[0, 1]))
-                r.insert(1, ncbiId)
-                r.insert(1, sp)
-                traits.append(r)
+                """
+                Starting from Python 3.7, dictionaries in Python maintain the order of insertion.
+                So, if you create a dictionary d using elements from a list as keys and then use list(d.keys()),
+                the list will have the same order as the keys were inserted into the dictionary.
+                """
+                q = list(phen_traits_dict.values())
+                q.insert(1, ncbiId)
+                q.insert(1, sp)
+                q = [str(x) for x in q]
+                traits.append(q)
+
             else:
-                print(
-                    "Genome :",
-                    gtdb_id,
-                    "is not present in the phenDB version of microbetag.")
+                print("Genome:", gtdb_id, "is not present in the phenDB version of microbetag.")
 
         # Save phen traits as a .tsv file
         if not os.path.exists(phen_output_dir):
@@ -249,7 +252,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
                     to species/strain to species/strain level associations of the network
                     Let's find those pairs!""")
 
-        species_level_associations, genomes_of_species_nodes = export_species_level_associations(edgelist_as_a_list_of_dicts)
+        species_level_associations, genomes_of_species_nodes, parent_children_ncbiIds_present = export_species_level_associations(edgelist_as_a_list_of_dicts)
 
     # Pathway complementarity
     if cfg["pathway_complement"]:
@@ -260,11 +263,14 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
             edge_list = edge_list_file.copy()
 
         ncbi_id_pairs_with_complements = get_complements_of_list_of_pair_of_ncbiIds(species_level_associations, genomes_of_species_nodes)
-        os.mkdir(pathway_complementarity_dir)
+
+        if not os.path.exists(pathway_complementarity_dir):
+            os.mkdir(pathway_complementarity_dir)
 
         with open(os.path.join(pathway_complementarity_dir, "complements.json"), "w") as f:
             ncbi_id_pairs_with_complements = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_complements.items()}
-            json.dump(ncbi_id_pairs_with_complements, f)
+            ncbi_id_pairs_with_complements_str = convert_tuples_to_strings(ncbi_id_pairs_with_complements)
+            json.dump(ncbi_id_pairs_with_complements_str, f)
 
         logging.info("Pathway complementarity has been completed successfully.".center(80, "*"))
 
@@ -274,7 +280,9 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
                    reconstructions and the Seed appraoch.""".center(80, "*"))
 
         ncbi_id_pairs_with_seed_scores = get_seed_scores_for_list_of_pair_of_ncbiIds(species_level_associations, genomes_of_species_nodes)
-        os.mkdir(seed_scores_dir)
+
+        if not os.path.exists(seed_scores_dir):
+            os.mkdir(seed_scores_dir)
 
         print(ncbi_id_pairs_with_seed_scores)
 
@@ -288,21 +296,19 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None):
         if not edge_list_file:
             logging.info("""STEP: network clustering using manta and the abundance table""".center(80, "*"))
 
-            # fix input data  
+            # fix input data
             os.system("sed  '1,2d'  flashweave/network_detailed_output.edgelist  > edgelist_for_manta.txt")
-
-            # 
 
             manta_params = [
                 "manta",
                 "-i", "edgelist_for_manta.txt"
-            ]
-
+                "--layout",
+                "--"
+            ]  # check also how to return the weights.
 
     # Build output; an annotated graph
     logging.info("""STEP: Constructing the annotated network""")
     annotated_network = annotate_network(base_network, cfg, seqID_taxid_level_repr_genome, out_dir)
-
 
     with open(os.path.join(out_dir, "annotated_network.json"), "w") as f:
         json.dump(annotated_network, f)

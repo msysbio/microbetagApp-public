@@ -14,29 +14,33 @@ Essential parameters:
 
 """
 
+# [TODO] Make flashweave running with 2 workers ( -p 2 ); change ARGS accordingly
 
-# using Pandas
+# import flashweave
 using FlashWeave # this has some pre-compilation delay the first time it's called, subsequent imports are fast
 
 FLASHWEAVE_OUTPUT_DIR = ARGS[1]
+data_path = ARGS[2]
+sensitive = parse(Bool, ARGS[3])
+heterogeneous = parse(Bool, ARGS[4])
+meta_data_path = parse(Bool, ARGS[5])
 
-if length(ARGS) > 2
-   data_path    = ARGS[2]
-   metadata     = ARGS[3]
+if meta_data_path
+   metadata     = ARGS[5]
    netw_results = learn_network(
                                  data_path, 
                                  meta_data_path, 
-                                 sensitive = true, 
-                                 heterogeneous = false
+                                 sensitive = sensitive, 
+                                 heterogeneous = heterogeneous
                               )
 
 else
-   data_path    = ARGS[2]
+   
    netw_results = learn_network(
                                  data_path,
                                  n_obs_min = 5,  
-                                 sensitive = true, 
-                                 heterogeneous = false,
+                                 sensitive = sensitive, 
+                                 heterogeneous = heterogeneous,
                                  max_k = 1,
                                  transposed = true
                               )

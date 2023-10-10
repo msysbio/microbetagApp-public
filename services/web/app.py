@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, flash, request, session
+from flask import Flask, jsonify, flash, request, session, send_file
 from flask_caching import Cache
 from werkzeug.utils import secure_filename
 import json
@@ -8,7 +8,7 @@ import pandas as pd
 import microbetag.microbetag as microbetag
 import microbetag.scripts.db_functions as db_functions
 from datetime import datetime
-import time
+import zipfile
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)s %(message)s',
@@ -41,8 +41,8 @@ def phen_traits(gtdb_genome_id):
     """ Route to get phenotypic traits for a certain genome id based on phenDB classes """
     phen_traits = db_functions.get_phendb_traits(gtdb_genome_id)
     if phen_traits == 0:
-        message = """No Phen traits for the genome id asked. Try replacing GCA with GCF or vice versa.\
-        If still no hits, then there is no relative info currently on microbetag DB."""
+        message = """No Phen traits for the genome id asked. \
+        Make sure you are asking for a GTDB v202 representative genome."""
         return message
     else:
         return jsonify(phen_traits)
@@ -105,15 +105,15 @@ def upload_dev():
         data = json_array["data"]
         data = pd.DataFrame(data)  # pd.read_json(data)
 
-        metadata = json_array["metadata"]
-
         data.iloc[0, 0] = "seqId"
         data.iloc[0, -1] = "taxonomy"
 
         # CytoApp will provide a list of args while API is better to give a dictionary in terms of user friendliness
+        arguments_list = [
+            "input_category", "taxonomy", "delimiter", "get_children", "sensitive", "heterogeneous",
+            "phenDB", "faprotax", "pathway_complement", "seed_scores", "manta"
+        ]
         if isinstance(json_array["inputParameters"], list):
-            arguments_list = ["input_category", "taxonomy", "delimiter", "sensitive", "heterogeneous", 
-                "phenDB", "faprotax", "pathway_complement", "seed_scores", "manta"]
             args = {}
             for i, j in zip(arguments_list, json_array["inputParameters"]):
                 if j == "true":
@@ -126,36 +126,32 @@ def upload_dev():
         abundance_table = os.path.join(out_dir, "abundance_table.tsv")
         data.to_csv(abundance_table, sep='\t', header=False, index=False)
 
-        if metadata:
-            # [TODO]: check if an empty metadata entry is a nonetype or a string of 0 length 
+        if "metadata" in json_array:
+            # [TODO]: check if an empty metadata entry is a nonetype or a string of 0 length
             metadata_table = os.path.join(out_dir, "metadata.tsv")
             metadata.to_csv(metadata_table, sep="\t", header=False, index=False)
 
         # run microbetag
         annotated_network = microbetag.main(out_dir, args, abundance_table)
 
-        # Cache the response and set the request_id as the cache key
-        # cache.set(request_id, annotated_network)
+        # # Zip file Initialization and you can change the compression type
+        # zipfolder = zipfile.ZipFile('microbetag.zip', 'w', compression=zipfile.ZIP_STORED)
 
+        # # zip all the files which are inside in the folder
+        # for root, dirs, files in os.walk(out_dir):
+        #     for file in files:
+        #         zipfolder.write(os.path.join(out_dir, file))
+        # zipfolder.close()
 
-        # Zip file Initialization and you can change the compression type
-        zipfolder = zipfile.ZipFile('microbetag.zip','w', compression = zipfile.ZIP_STORED)
+        # return send_file(
+        #     'microbetag.zip',
+        #     mimetype='zip',
+        #     attachment_filename='microbetag.zip',
+        #     as_attachment=True
+        # )
 
-        # zip all the files which are inside in the folder
-        for root,dirs, files in os.walk(out_dir):
-            for file in files:
-                zipfolder.write(os.path.join(out_dir,file))
-        zipfolder.close()
-
-        return send_file('microbetag.zip',
-                mimetype = 'zip',
-                attachment_filename= 'microbetag.zip',
-                as_attachment = True)
-
-        # Delete the zip file if not needed
-        os.remove("microbetag.zip")
-
-
+        # # Delete the zip file if not needed
+        # os.remove("microbetag.zip")
 
         return annotated_network
 
