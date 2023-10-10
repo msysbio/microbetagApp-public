@@ -10,7 +10,7 @@ IO_PATH = "/tmp"
 # Abundance table
 ABUNDANCE_TABLE_DELIM = "\t"
 TAX_COL = "taxonomy"
-TAX_DELIM = ";"
+# TAX_DELIM = ";"
 SEQ_COL = "seqId"
 COM_CHAR = "#"
 
@@ -48,3 +48,4 @@ TOOLS = os.path.join(BASE, "tools")
 FLASHWEAVE_SCRIPT = os.path.join(TOOLS, "flashweave/flashweave.jl")
 FAPROTAX_SCRIPT = os.path.join(TOOLS, "faprotax/collapse_table.py")
 FAPROTAX_DB = os.path.join(TOOLS, "faprotax/FAPROTAX.txt")
+NCBI_NODES_TMP = "/opt/ncbi/nodes.tmp"
