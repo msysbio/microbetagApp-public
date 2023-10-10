@@ -2,15 +2,17 @@
 Parse user's input OTU table
 """
 from .db_functions import *
+from .variables import *
+from fuzzywuzzy import fuzz
 import pandas as pd
 import numpy as np
 import logging
 import os
-import sys
-from .variables import *
+import time
+import re
 import json
-from fuzzywuzzy import fuzz
-from multiprocessing import Pool
+import multiprocessing
+
 # import networkx as nx
 # import difflib
 
@@ -33,7 +35,7 @@ def annotate_network(base_network, config, ids_map, out_dir):
         df_traits_table = pd.read_csv(os.path.join(out_dir, "phen_predictions/phen_traits.tsv"), sep="\t")
         for node in annotated_network["elements"]["nodes"]:
             ncbiId = node["data"]["NCBI-Tax-Id"]
-            if ncbiId == "<NA>":
+            if ncbiId == "null":
                 continue
             if int(ncbiId) in df_traits_table['NCBI_ID'].values:
                 node_traits = df_traits_table.iloc[df_traits_table["NCBI_ID"].values == int(ncbiId)].to_dict()
@@ -63,9 +65,10 @@ def annotate_network(base_network, config, ids_map, out_dir):
                     edge["target-to-source-complements"] = complements
 
     if config["seed_scores"]:
- 
         seed_scores_dict = json.load(open(os.path.join(out_dir, "")))
 
+    if config["manta"]:
+        clustering_nodes = "add them"
 
     return annotated_network
 
@@ -75,13 +78,17 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts):
     This functions gets as input the edges of the network as a list of dictionaries
     checks the ncbi_tax_level of each node and in case where for both nodes it is species or strain
     gets their corresponding GTDB genomes on microbetagDB
+    Returns:
+    a. pairs_of_interest: a set with the ncbi tax ids of the linking nodes
+    b. related_genomes: a dictionary with the genomes assigned (values) to each ncbi id (key)
+    c. parent_children_ncbiIds_present: {}
     """
 
     set_of_ncbiids_of_interest = set()
     list_of_non_usefules_ids = ["77133"]
     pairs_of_interest = set()
-    for pair in edgelist_as_a_list_of_dicts:
 
+    for pair in edgelist_as_a_list_of_dicts:
         taxon_a = str(pair["ncbi_tax_id_node_a"]).split(".")[0]
         taxon_b = str(pair["ncbi_tax_id_node_b"]).split(".")[0]
         if taxon_a in list_of_non_usefules_ids or taxon_b in list_of_non_usefules_ids:
@@ -94,10 +101,24 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts):
             pairs_of_interest.add((taxon_a, taxon_b))
             pairs_of_interest.add((taxon_b, taxon_a))
 
+    # Build nodes dict
+    """
+    ATTENTION! We have noticed that in some cases, we have strain genomes but no genomes of their corresponding genomes.
+    On top of that, a species may have several genomes so even if there is a genome for the species, it's good to get
+    what its strains suggest.
+    """
+    ncbi_nodes_dict = get_ncbi_nodes_dict()
     ncbiId_to_genomesIds_queries = []
+    parent_children_ncbiIds_present = {}
     for ncbiId in set_of_ncbiids_of_interest:
-        query = "".join(["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(ncbiId), ";"])
-        ncbiId_to_genomesIds_queries.append(query)
+        nids = []
+        if ncbiId in ncbi_nodes_dict:
+            nids = ncbi_nodes_dict[ncbiId]
+            parent_children_ncbiIds_present[ncbiId] = nids
+        nids.append(ncbiId)
+        for nid in nids:
+            query = "".join(["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(nid), ";"])
+            ncbiId_to_genomesIds_queries.append(query)
 
     # Execute the queries
     genomes = []
@@ -105,11 +126,11 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts):
     for query in ncbiId_to_genomesIds_queries:
         cursor.execute(query)
         query_results = cursor.fetchall()
-        genomes.append({query.split(" ")[-1][:-1]: [x[0] for x in query_results]})
+        genomes.append({query.split(" ")[-1][:-1]: [x[0] for x in query_results if x[0].startswith("GCA_") or x[0].startswith("GCF_")]})
 
     related_genomes = {key: value for dictionary in genomes for key, value in dictionary.items()}
 
-    return pairs_of_interest, related_genomes
+    return pairs_of_interest, related_genomes, parent_children_ncbiIds_present
 
 
 def count_comment_lines(my_abundance_table, my_taxonomy_column):
@@ -129,21 +150,18 @@ def count_comment_lines(my_abundance_table, my_taxonomy_column):
     return skip_rows
 
 
-def map_seq_to_ncbi_tax_level_and_id(
-        abundance_table, my_taxonomy_column, seqId, taxonomy_scheme, tax_delim):
+def map_seq_to_ncbi_tax_level_and_id(abundance_table, my_taxonomy_column, seqId, taxonomy_scheme, tax_delim, get_chiildren):
     """
     Parse user's OTU table and the Silva database to get to add 2 extra columns in the OTU table:
     1. the lowest taxonomic level of the taxonomy assigned in an OTU, for which an NCBI Taxonomy id exists (e.g., "genus")
     2. the corresponding NCBI Taxonomy Id (e.g., "343")
 
-    The SPECIES_NCBI_ID, GENERA_NCBI_IDS and FAMILIES_NCBI_IDS files are like this:
-    Species  ncbi_tax_id
-    D_6__Abiotrophia sp. oral clone OH2A       319434
-
     Returns:
-    a. seq_id_taxid_level_repr_genome: a pandas df with the sequence id, the ncbi tax id of the lowest taxonomic level in the taxonomy
-         and their corresponding GTDB genome if available
-    b. repr_genomes_present: a list of GTDB genomes
+    a. splitted_taxonomies: a pandas df with the sequence id, the ncbi tax id of species, genus, family level when available
+                        and the lowest taxonomic level for which there is an ncbi tax id
+                        also a list (as column in th df) with gtdb genomes if available
+                        species_ncbi_id genus_ncbi_id family_ncbi_id  tax_level  ncbi_tax_id,
+    b. repr_genomes_present: a list with the GTDB genomes of interest
     """
     if taxonomy_scheme == "GTDB":
         taxon_to_ncbiId = os.path.join(MAPPINGS, "gtdbSpecies2ncbiId2accession.tsv")
@@ -156,184 +174,155 @@ def map_seq_to_ncbi_tax_level_and_id(
         species_ncbi_id.columns = ['Species', 'ncbi_tax_id']
         species_ncbi_id['Species'].str.strip()
 
+    elif taxonomy_scheme == "Silva":
+        # [TODO] add the
+        print("remember me!")
+
     else:
         taxon_to_ncbiId = os.path.join(MAPPINGS, "species2ncbiId2accession.tsv")
-        taxon_to_ncbiId = pd.read_csv(taxon_to_ncbiId, sep="\t", names = ["name", "ncbi", "gtdb"])
+        taxon_to_ncbiId = pd.read_csv(taxon_to_ncbiId, sep="\t", names=["name", "ncbi", "gtdb"])
 
     # Split the taxonomy column and split it based on semicolumn!
     taxonomies = abundance_table.filter([seqId, my_taxonomy_column, "microbetag_id"])
     splitted_taxonomies = taxonomies[my_taxonomy_column].str.split(tax_delim, expand=True)
-    splitted_taxonomies.columns = ["Domain", "Phylum", "Class", "Order", "Family","Genus", "Species"]
+    splitted_taxonomies.columns = ["Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"]
     splitted_taxonomies[seqId] = taxonomies[seqId]
     splitted_taxonomies["microbetag_id"] = taxonomies["microbetag_id"]
 
-    splitted_taxonomies_c = splitted_taxonomies.copy()
-
-    # Check if "s__" taxonomy like and whether species in 1 or 2 steps
-    if splitted_taxonomies['Species'].str.contains("s__").all():
-        pattern_for_complete_name = r"__[\s_]" 
+    # Check if "s__" taxonomy-like and whether species in 1 or 2 steps
+    s_pattern = "s__"
+    if splitted_taxonomies['Species'].str.contains(s_pattern).all():
+        pattern_for_complete_name = r"__[\s_]"
         if splitted_taxonomies['Species'].str.contains(pattern_for_complete_name).all():
-            splitted_taxonomies["extendedSpecies"] = splitted_taxonomies['Species'].apply(process_species)
+            splitted_taxonomies["extendedSpecies"] = splitted_taxonomies['Species'].apply(process_underscore_taxonomy)
         else:
             # We need to use the Genus column too
-            genus = splitted_taxonomies['Genus'].apply(process_species)
-            species = splitted_taxonomies['Species'].apply(process_species)
+            genus = splitted_taxonomies['Genus'].apply(process_underscore_taxonomy)
+            species = splitted_taxonomies['Species'].apply(process_underscore_taxonomy)
             splitted_taxonomies["extendedSpecies"] = pd.DataFrame({'extendedSpecies': np.where(species.isna(), None, genus + ' ' + species)})
-        unique_species = splitted_taxonomies['extendedSpecies'].unique()            
     else:
-        unique_species = splitted_taxonomies['Species'].unique()
+        splitted_taxonomies["extendedSpecies"] = splitted_taxonomies['Species']
 
+    unique_species = splitted_taxonomies['extendedSpecies'].unique()
     unique_species = [item for item in unique_species if item is not None]
 
     # Run a pool to get NCBI ids at SPECIES level
-    chunk_size = round(len(unique_species)/2)
-    chunks = [unique_species[i:i+chunk_size] for i in range(0, len(unique_species), chunk_size)]
+    chunk_size = round(len(unique_species) / 2)
+    chunks = [unique_species[i: i + chunk_size] for i in range(0, len(unique_species), chunk_size)]
 
-    pool = multiprocessing.Pool(2) 
-    data = [ (chunk, taxon_to_ncbiId) for chunk in chunks]
+    pool = multiprocessing.Pool(2)
+    data = [(chunk, taxon_to_ncbiId) for chunk in chunks]
     ncbi_ids_species_level = pool.map(calculate_fuzzy_similarity_chunk, data)
 
-    ncbi_ids_species_name_matched_df = pd.DataFrame.from_dict(ncbi_ids_species_level[0], orient="index" )
+    # Fix ncbi tax ids for species level
+    ncbi_ids_species_name_matched_df = pd.DataFrame.from_dict(ncbi_ids_species_level[0], orient="index")
     ncbi_ids_species_name_df = ncbi_ids_species_name_matched_df["ncbi"]
     ncbi_ids_species_name = dict(ncbi_ids_species_name_df)
 
-    splitted_taxonomies["species_ncbi_id"]=splitted_taxonomies["extendedSpecies"].map(ncbi_ids_species_name)
-
+    splitted_taxonomies["species_ncbi_id"] = splitted_taxonomies["extendedSpecies"].map(ncbi_ids_species_name)
 
     # Get NCBI ids at GENUS level
-    genera_to_get_ids = splitted_taxonomies.loc[splitted_taxonomies['species_ncbi_id'].isna(), 'Genus']
-
-
-
-
-
-# =============================================================
-
-
-
     genera_ncbi_id = pd.read_csv(GENERA_NCBI_IDS, sep="\t")
     genera_ncbi_id.columns = ['Genus', 'ncbi_tax_id']
     genera_ncbi_id['Genus'].str.strip()
 
+    # genera_to_get_ids = splitted_taxonomies.loc[splitted_taxonomies['species_ncbi_id'].isna(), 'Genus']
+    genera = splitted_taxonomies['Genus'].apply(process_underscore_taxonomy)
+    splitted_taxonomies["extendedGenus"] = genera
+    genera.name = "Genus"
+    genera = genera.to_frame()
+    genera = genera.merge(genera_ncbi_id, on='Genus', how='inner').drop_duplicates()
+    splitted_taxonomies = pd.merge(splitted_taxonomies, genera, left_on='extendedGenus', right_on='Genus', how='left')
+    splitted_taxonomies = splitted_taxonomies.drop('Genus_y', axis=1)
+    splitted_taxonomies = splitted_taxonomies.rename(columns={'ncbi_tax_id': 'genus_ncbi_id'})
+    splitted_taxonomies['genus_ncbi_id'] = np.where(splitted_taxonomies['species_ncbi_id'].notna(), np.nan, splitted_taxonomies['genus_ncbi_id'])
+
+    # Get NCBI ids at FAMILY level
     family_ncbi_id = pd.read_csv(FAMILIES_NCBI_IDS, sep="\t")
     family_ncbi_id.columns = ['Family', 'ncbi_tax_id']
     family_ncbi_id['Family'].str.strip()
+    families = splitted_taxonomies['Family'].apply(process_underscore_taxonomy)
+    splitted_taxonomies["extendedFamily"] = families
+    families.name = "Family"
+    families = families.to_frame()
+    families = families.merge(family_ncbi_id, on='Family', how='inner').drop_duplicates()
+    splitted_taxonomies = pd.merge(splitted_taxonomies, families, left_on='extendedFamily', right_on='Family', how='left')
+    splitted_taxonomies = splitted_taxonomies.drop('Family_y', axis=1)
+    splitted_taxonomies = splitted_taxonomies.rename(columns={'ncbi_tax_id': 'family_ncbi_id'})
 
-    """
-    Build a dataframe for the Species, Genus and Family taxonomies present
-    on the OTU table along with their corresponding NCBI Tax IDs
-    """
+    # Remove proxy taxon columns
+    # splitted_taxonomies = splitted_taxonomies.drop('extendedSpecies', axis=1)
+    splitted_taxonomies = splitted_taxonomies.drop('extendedGenus', axis=1)
+    splitted_taxonomies = splitted_taxonomies.drop('extendedFamily', axis=1)
 
+    # Get GTDB genomes for taxa available
+    unique_species_present_ncbi_ids = list(splitted_taxonomies["species_ncbi_id"].astype(pd.Int64Dtype()).astype(str).unique())
+    unique_species_present_ncbi_ids = [x for x in unique_species_present_ncbi_ids if x != "<NA>"]
 
+    # Dictionary with ncbi ids of species level nodes and their gtdb genomes
+    species_ncbi_ids_to_gtdb_genomes = {}
+    for ncbi_id in unique_species_present_ncbi_ids:
+        genomes = get_genomes_for_ncbi_tax_id(ncbi_id)
+        gc_genomes = [genome for genome in list(genomes.values())[0] if genome.startswith("GCA_") or genome.startswith("GCF_")]
+        if len(gc_genomes) > 0:
+            species_ncbi_ids_to_gtdb_genomes[ncbi_id] = gc_genomes
 
-    """
-    GTDB Ids will be added in another function
-    """
-    # # GTDB accession ids
-    # genomes_present = gtdb_accession_ids.merge(
-    #     splitted_taxonomies,
-    #     on=["Species"]
-    # )[["ncbi_tax_id", "gtdb_gen_repr", seqId]]
+    # A list with the gtdb present on the dataset
+    repr_genomes_present = [item for sublist in list(species_ncbi_ids_to_gtdb_genomes.values()) for item in sublist]
 
-    # splitted_taxonomies = pd.merge(genomes_present, splitted_taxonomies,
-    #                                on=seqId, how='outer')
-    # splitted_taxonomies.loc[splitted_taxonomies["ncbi_tax_id"].notnull(
-    # ), "ncbi_tax_level"] = "mspecies"
+    # Fix final df: add GTDB genomes to those with one
+    splitted_taxonomies['gtdb_gen_repr'] = splitted_taxonomies['species_ncbi_id'].map(species_ncbi_ids_to_gtdb_genomes)
 
-    # mspecies = splitted_taxonomies[[seqId, "gtdb_gen_repr"]]
+    # Now map those GTDB ids to their corresponding entries in the splitted_taxonomy df
+    splitted_taxonomies['ncbi_tax_id'] = splitted_taxonomies.apply(assign_tax_id_for_node_level, axis=1).astype(str)
+    splitted_taxonomies['ncbi_tax_id'] = splitted_taxonomies['ncbi_tax_id'].fillna('').astype(str).str.rstrip('.0').replace('', np.nan).astype(float).astype('Int64')
 
+    # Keep what is the taxonomic level of the node
+    splitted_taxonomies['ncbi_tax_level'] = splitted_taxonomies.apply(determine_tax_level, axis=1)
 
+    # Remove any white spaces from the dataframe's columns
+    splitted_taxonomies = splitted_taxonomies.map(lambda x: x.strip() if isinstance(x, str) else x)
 
-    # # Species
-    # species_present = species_ncbi_id.merge(splitted_taxonomies.query('ncbi_tax_level != "mspecies"'),
-    #                                         on=['Species'],
-    #                                         suffixes=('_species', '_mspecies')
-    #                                         )[
-    #     [seqId, "ncbi_tax_id_species", "ncbi_tax_level"]
-    # ]
+    if get_chiildren:
+        ncbi_parent_to_children = {}
+        ncbi_nodes_dict = get_ncbi_nodes_dict()
 
-    species_present.loc[species_present["ncbi_tax_level"] !=
-                        "mspecies", "ncbi_tax_level"] = "species"
+        species_df = splitted_taxonomies[splitted_taxonomies['ncbi_tax_level'] == "species"]
 
-    splitted_taxonomies = pd.merge(splitted_taxonomies, species_present,
-                                   on=seqId,
-                                   how="outer",
-                                   suffixes=('_species', '_mspecies')
-                                   )
+        for potent_parent in species_df["ncbi_tax_id"]:
+            potent_parent = str(int(potent_parent))
+            if potent_parent in ncbi_nodes_dict:
+                ncbi_parent_to_children[potent_parent] = ncbi_nodes_dict[potent_parent]
 
-    splitted_taxonomies["ncbi_tax_id"] = splitted_taxonomies["ncbi_tax_id"].fillna(
-        splitted_taxonomies["ncbi_tax_id_species"])
-    splitted_taxonomies["ncbi_tax_level"] = splitted_taxonomies["ncbi_tax_level_mspecies"].fillna(
-        splitted_taxonomies["ncbi_tax_level_species"])
+        rows = [(key, value) for key, values in ncbi_parent_to_children.items() for value in values]
 
-    splitted_taxonomies = splitted_taxonomies.drop(
-        ["ncbi_tax_id_species", "ncbi_tax_level_species", "ncbi_tax_level_mspecies"], axis=1)
+        # Create a DataFrame from the list of tuples
+        children_df = pd.DataFrame(rows, columns=['parent_ncbi_tax_id', 'child_ncbi_tax_id'])
+        children_ncbi_ids_to_gtdb_genomes = {}
+        for ncbi_id in children_df["child_ncbi_tax_id"]:
+            genomes = get_genomes_for_ncbi_tax_id(ncbi_id)
+            gc_genomes = [genome for genome in list(genomes.values())[0] if genome.startswith("GCA_") or genome.startswith("GCF_")]
+            if len(gc_genomes) > 0:
+                children_ncbi_ids_to_gtdb_genomes[ncbi_id] = gc_genomes
 
-    """
-    REMEMBER!
-    There is no one-to-one relationship between a NCBI Taxonomy Id and a representative genome
-    We do not have a hit for ALL NCBI TAX IDs from the species found in our experiment, aka there s
-    no GTDB representative genome for all NCBI Taxonomy Ids, e.g.  Bradyrhizobium sp. J81, NCBI Tax Id: 656743
-    """
+        children_df['gtdb_gen_repr'] = children_df['child_ncbi_tax_id'].map(children_ncbi_ids_to_gtdb_genomes)
 
-    # Genera
-    pd_genera = splitted_taxonomies[[
-        seqId, "ncbi_tax_level", "ncbi_tax_id", "gtdb_gen_repr", "Genus"]]
-    genera_present = genera_ncbi_id.merge(
-        pd_genera, on=['Genus'], suffixes=(
-            "_gen", "_over"), how="right")
+    splitted_taxonomies = splitted_taxonomies.explode("gtdb_gen_repr")
 
-    genera_present.loc[genera_present["ncbi_tax_id_gen"].notnull(
-    ), "ncbi_tax_level_gen"] = "genus"
+    children_df = children_df.explode("gtdb_gen_repr")
 
-    genera_present["ncbi_tax_id"] = genera_present['ncbi_tax_id_over'].combine_first(
-        genera_present['ncbi_tax_id_gen'])
-    genera_present["ncbi_tax_level"] = genera_present['ncbi_tax_level'].combine_first(
-        genera_present['ncbi_tax_level_gen'])
-
-    genera_present = genera_present.drop(
-        ["ncbi_tax_id_gen", "ncbi_tax_id_over", "Genus"], axis=1)
-
-    # Families
-    pd_families = splitted_taxonomies[[seqId, "Family"]]
-    families_present = family_ncbi_id.merge(
-        pd_families, on=['Family'], how="right")
-    families_present.loc[families_present["ncbi_tax_id"].notnull(
-    ), "ncbi_tax_level"] = "family"
-
-    families_present["ncbi_tax_id"] = genera_present["ncbi_tax_id"].combine_first(
-        families_present["ncbi_tax_id"])
-    families_present["ncbi_tax_level"] = genera_present["ncbi_tax_level"].combine_first(
-        families_present["ncbi_tax_level"])
-    families_present = families_present.drop(["Family"], axis=1)
-
-    # Build a unified data frame for all levels and the accession ids when
-    # available
-    otu_taxid_level_repr_genome = pd.merge(
-        splitted_taxonomies_c,
-        families_present,
-        on=seqId)
-    otu_taxid_level_repr_genome = pd.merge(
-        otu_taxid_level_repr_genome,
-        mspecies,
-        on=seqId,
-        how="outer")
-
-    otu_taxid_level_repr_genome['ncbi_tax_id'] = otu_taxid_level_repr_genome['ncbi_tax_id'].astype(pd.Int64Dtype()).astype(str)
-
-    repr_genomes_present = list(mspecies["gtdb_gen_repr"].dropna())
-
-    return otu_taxid_level_repr_genome, repr_genomes_present
+    return splitted_taxonomies, repr_genomes_present, children_df
 
 
 def calculate_fuzzy_similarity_chunk(args_set):
     """
-    Gets a list of taxa names and checks what is their best hit against the 
+    Gets a list of taxa names and checks what is their best hit against a ref taxonomy.
     """
-    import time, re, sys
-    buzz_taxa = ["uncultured bacterium", "uncultured organism", "uncultured beta proteobacterium",
+    buzz_taxa = [
+        "uncultured bacterium", "uncultured organism", "uncultured beta proteobacterium",
         "uncultured soil bacterium", "uncultured rumen bacterium", "uncultured gamma proteobacterium",
-        "D_8__uncultured rumen protozoa", "uncultured delta proteobacterium"]
+        "D_8__uncultured rumen protozoa", "uncultured delta proteobacterium"
+    ]
     chunk, taxon_to_ncbiId_df = args_set[0], args_set[1]
     start = time.time()
     result = []
@@ -341,8 +330,8 @@ def calculate_fuzzy_similarity_chunk(args_set):
     for taxon in chunk:
         taxon = taxon.strip()
         _shared_dict[taxon] = {}
-         # check if it is not a species name at all
-        tokens =  re.split(r'[ _]', taxon)
+        # check if it is not a species name at all
+        tokens = re.split(r'[ _]', taxon)
         if len(tokens) == 1:
             print("entry '", taxon, "' is single word, thus not a species name")
             _shared_dict[taxon]["ncbi"] = None
@@ -358,7 +347,6 @@ def calculate_fuzzy_similarity_chunk(args_set):
                 _shared_dict[taxon]["matched_name"] = taxon_to_ncbiId_df[is_in_column]["name"].values[0]
             else:
                 print(".... ***looking for closest entry in NCBI Taxonomy for taxon '", taxon, "'")
-                start2 = time.time()
                 best_similarity = 0
                 best_match = ""
                 ncbi = ""
@@ -373,15 +361,11 @@ def calculate_fuzzy_similarity_chunk(args_set):
                     _shared_dict[taxon]["matched_name"] = best_match
                     _shared_dict[taxon]["ncbi"] = ncbi
                 else:
-                    print(taxon)
-                    print(best_match)
-                    print(best_similarity)
+                    print(taxon, best_match, best_similarity)
                     _shared_dict[taxon]["ncbi"] = None
-                end2 = time.time()
     end = time.time()
-    print("\n\nTotal chunk time: ", str(end-start))
+    print("\n\nTotal chunk time: ", str(end - start))
     return _shared_dict
-
 
 
 def seqId_faprotax_functions_assignment(path_to_subtables):
@@ -430,18 +414,20 @@ def build_a_base_node(taxon, edge, taxonomy, side):
     return node
 
 
-def get_child_taxa(parent_tax_id, nodes_file):
+def get_ncbi_nodes_dict():
     """
     Returns all children NCBI Taxonomy IDs of a parent.
     """
-    child_taxa = []
-    with open(nodes_file, 'r') as nodes:
+    nodes_dict = {}
+    with open(NCBI_NODES_TMP, 'r') as nodes:
         for line in nodes:
             fields = line.strip().split('\t|\t')
-            tax_id, parent_id, rank = fields[0], fields[1], fields[2]
-            if parent_id == parent_tax_id:
-                child_taxa.append(tax_id)
-    return child_taxa
+            tax_id, parent_id = fields[0], fields[1]
+            if parent_id not in nodes_dict:
+                nodes_dict[parent_id] = [tax_id]
+            else:
+                nodes_dict[parent_id].append(tax_id)
+    return nodes_dict
 
 
 def build_base_graph(edgelist_as_a_list_of_dicts, microb_id_taxonomy):
@@ -555,8 +541,14 @@ def edge_list_of_ncbi_ids(edgelist, abundance_table_with_ncbi_ids):
 
     pd_edgelist["joint"] = pd_edgelist['node_a'].astype(str) + ":" + pd_edgelist["node_b"]
 
-    associated_pairs_node_a = pd.merge(pd_edgelist[["node_a", "joint"]], abundance_table_with_ncbi_ids[["ncbi_tax_id", "gtdb_gen_repr", "ncbi_tax_level", "microbetag_id"]],
-                                       left_on='node_a', right_on='microbetag_id', how="inner").drop(["microbetag_id"], axis=1)
+    # The pd.explode() function transforms the arrays into separate rows
+    abundance_table_with_ncbi_ids_exploded = abundance_table_with_ncbi_ids.explode("gtdb_gen_repr")
+
+    associated_pairs_node_a = pd.merge(
+        pd_edgelist[["node_a", "joint"]],
+        abundance_table_with_ncbi_ids_exploded[["ncbi_tax_id", "gtdb_gen_repr", "ncbi_tax_level", "microbetag_id"]],
+        left_on='node_a', right_on='microbetag_id', how="inner"
+    ).drop(["microbetag_id"], axis=1)
 
     associated_pairs_node_a.rename(columns={
         "ncbi_tax_level": "ncbi_tax_level_node_a",
@@ -564,8 +556,11 @@ def edge_list_of_ncbi_ids(edgelist, abundance_table_with_ncbi_ids):
         "ncbi_tax_id": "ncbi_tax_id_node_a"
     }, inplace=True)
 
-    associated_pairs_node_b = pd.merge(pd_edgelist[["node_b", "joint", "score"]], abundance_table_with_ncbi_ids[["ncbi_tax_id", "gtdb_gen_repr", "ncbi_tax_level", "microbetag_id"]],
-                                       left_on='node_b', right_on='microbetag_id', how="inner").drop(["microbetag_id"], axis=1)
+    associated_pairs_node_b = pd.merge(
+        pd_edgelist[["node_b", "joint", "score"]],
+        abundance_table_with_ncbi_ids_exploded[["ncbi_tax_id", "gtdb_gen_repr", "ncbi_tax_level", "microbetag_id"]],
+        left_on='node_b', right_on='microbetag_id', how="inner"
+    ).drop(["microbetag_id"], axis=1)
 
     associated_pairs_node_b.rename(columns={
         "ncbi_tax_level": "ncbi_tax_level_node_b",
@@ -589,11 +584,13 @@ def export_phen_traits_to_file(column_names, rows, filename):
     return True
 
 
-def process_species(entry):
+def process_underscore_taxonomy(entry):
     """
     Convert "s__" like taxa to ncbi like ones
     """
     parts = entry.split("__")
+    if len(parts) == 1:
+        return entry
     if len(parts[1]) > 0:
         return parts[1].replace("_", " ")
     else:
@@ -604,55 +601,35 @@ def tuple_to_str(t):
     return ','.join(map(str, t))
 
 
+def convert_tuples_to_strings(obj):
+    if isinstance(obj, tuple):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {convert_tuples_to_strings(key): convert_tuples_to_strings(value) for key, value in obj.items()}
+    return obj
 
 
-
-if __name__ == "__main__":
-
-from microbetag.scripts.utils import *
-import pandas as pd
-from fuzzywuzzy import fuzz
-import multiprocessing
-import os
-from multiprocessing import Pool
-abundance_table = is_tab_separated("static/input_test/k__taxonomy.tsv", "taxonomy")  #dada2_use_case
-ext = ensure_flashweave_format(abundance_table, "taxonomy", "ASV_ID", ".")
-taxonomies = abundance_table.filter(["ASV_ID","taxonomy", "microbetag_id"])
-splitted_taxonomies = taxonomies["taxonomy"].str.split(";", expand=True)
-splitted_taxonomies.columns = ["Domain","Phylum", "Class", "Order","Family","Genus", "Species"]
-splitted_taxonomies["ASV_ID"] = taxonomies["ASV_ID"]
-taxon_to_ncbiId = os.path.join("microbetag/mappings/", "species2ncbiId.tsv")
-taxon_to_ncbiId = pd.read_csv(taxon_to_ncbiId, sep="\t", names = ["name", "ncbi"])
-# Check if "s__" taxonomy like and whether species in 1 or 2 steps
-if splitted_taxonomies['Species'].str.contains("s__").all():
-    pattern_for_complete_name = r"__[\s_]" 
-    if splitted_taxonomies['Species'].str.contains(pattern_for_complete_name).all():
-        splitted_taxonomies["extendedSpecies"] = splitted_taxonomies['Species'].apply(process_species)
+def determine_tax_level(row):
+    if isinstance(row['gtdb_gen_repr'], list):
+        return 'mspecies'
+    elif not pd.isna(row['species_ncbi_id']):
+        return 'species'
+    elif not pd.isna(row['genus_ncbi_id']):
+        return 'genus'
+    elif not pd.isna(row['family_ncbi_id']):
+        return 'family'
     else:
-        # We need to use the Genus column too
-        genus = splitted_taxonomies['Genus'].apply(process_species)
-        species = splitted_taxonomies['Species'].apply(process_species)
-        splitted_taxonomies["extendedSpecies"] = pd.DataFrame({'extendedSpecies': np.where(species.isna(), None, genus + ' ' + species)})
-    unique_species = splitted_taxonomies['extendedSpecies'].unique()            
-else:
-    unique_species = splitted_taxonomies['Species'].unique()
-
-unique_species = [item for item in unique_species if item is not None]
+        return 'not known'
 
 
-chunk_size = round(len(unique_species)/2)
-chunks = [unique_species[i:i+chunk_size] for i in range(0, len(unique_species), chunk_size)]
-
-pool = multiprocessing.Pool(2) 
-data = [ (chunk, taxon_to_ncbiId) for chunk in chunks]
-ncbi_ids_species_level = pool.map(calculate_fuzzy_similarity_chunk, data)
-
-ncbi_ids_species_name_matched_df = pd.DataFrame.from_dict(ncbi_ids_species_level[0], orient="index" )
-ncbi_ids_species_name_df = ncbi_ids_species_name_matched_df["ncbi"]
-ncbi_ids_species_name = dict(ncbi_ids_species_name_df)
-
-
-splitted_taxonomies["species_ncbi_id"]=splitted_taxonomies["extendedSpecies"].map(ncbi_ids_species_name)
-
-
-
+def assign_tax_id_for_node_level(row):
+    if isinstance(row['gtdb_gen_repr'], list):
+        return row['species_ncbi_id']
+    elif not pd.isna(row['species_ncbi_id']):
+        return row['species_ncbi_id']
+    elif not pd.isna(row['genus_ncbi_id']):
+        return row['genus_ncbi_id']
+    elif not pd.isna(row['family_ncbi_id']):
+        return row['family_ncbi_id']
+    else:
+        return np.nan
