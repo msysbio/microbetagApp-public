@@ -93,19 +93,31 @@ def get_phendb_traits(gtdb_genome_id="GCA_018819265.1"):
     """
     Get phenotypical traits based on phenDB classes based on its GTDB representative genome
     """
-    query = "".join(
-        ["SELECT * FROM phenDB WHERE gtdbId = '", gtdb_genome_id, "';"])
-
+    gtdb_genome_id = gtdb_genome_id.strip()
+    query = "".join(["SELECT * FROM phenDB WHERE gtdbId = '", gtdb_genome_id, "';"])
     rows = execute(query)
 
     if len(rows) == 0:
-        return 0
+        if gtdb_genome_id.startswith("GCA_"):
+            gtdb_genome_id = gtdb_genome_id.replace("GCA_", "GCF_")
+        elif gtdb_genome_id.startswith("GCF_"):
+            gtdb_genome_id = gtdb_genome_id.replace("GCF_", "GCA_")
+        else:
+            # Handle cases where the input doesn't start with either prefix
+            return 0, 0
+
+        query = "".join(["SELECT * FROM phenDB WHERE gtdbId = '", gtdb_genome_id, "';"])
+        rows = execute(query)
+
+        if len(rows) == 0:
+            print("This is not a NCBI accession id. It could be a MGnify or a KEGG one.")
+            return 0, 0
 
     query_colnames = "SHOW COLUMNS FROM phenDB;"
     colnames = [list(x)[0] for x in execute(query_colnames)]
     genomes_traits = {i: j for i, j in zip(colnames, rows[0])}
 
-    return genomes_traits
+    return genomes_traits, gtdb_genome_id
 
 
 # Pathway complementarity related
@@ -169,81 +181,52 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genom
     This function is running as part of the microbetag pipeline while the others mostly support the microbetag API.
     By running chunks of queries using the same cursor, we save quite some time.
     """
-    # set_of_ncbiids_of_interest = set()
-    # list_of_non_usefules_ids = ["77133"]
-    # pairs_of_interest = set()
-    # for pair in ncbi_id_pairs:
-    #     taxon_a = str(pair["ncbi_tax_id_node_a"]).split(".")[0]
-    #     taxon_b = str(pair["ncbi_tax_id_node_b"]).split(".")[0]
-    #     if taxon_a in list_of_non_usefules_ids or taxon_b in list_of_non_usefules_ids:
-    #         continue
-    #     # we keep as a pair both a->b and b->a association
-    #     if pair["ncbi_tax_level_node_a"] == pair["ncbi_tax_level_node_b"] == "mspecies":
-    #         set_of_ncbiids_of_interest.add(taxon_a)
-    #         set_of_ncbiids_of_interest.add(taxon_b)
-    #         pairs_of_interest.add((taxon_a, taxon_b))
-    #         pairs_of_interest.add((taxon_b, taxon_a))
-
-    # ncbiId_to_genomesIds_queries = []
-    # for ncbiId in set_of_ncbiids_of_interest:
-    #     query = "".join(["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(ncbiId), ";"])
-    #     ncbiId_to_genomesIds_queries.append(query)
-
-    # # Execute the queries
-    # genomes = []
-    # cnx, cursor = create_cursor()
-    # for query in ncbiId_to_genomesIds_queries:
-    #     cursor.execute(query)
-    #     query_results = cursor.fetchall()
-    #     genomes.append({query.split(" ")[-1][:-1]: [x[0] for x in query_results]})
-
-    # relative_genomes = {key: value for dictionary in genomes for key, value in dictionary.items()}
-    # # relative_genomes = {}
-    # # for dictionary in genomes:
-    # #     for key, value in dictionary.items():
-    # #         relative_genomes[key] = value
-
     # Build the queries
     complements_ids_queries = {}
-    for pair in list(pairs_of_interest):
-        ncbi_a = pair[0]
-        ncbi_b = pair[1]
+    for ncbi_pair in list(pairs_of_interest):
+        ncbi_a = ncbi_pair[0]
+        ncbi_b = ncbi_pair[1]
         for ncbi_a_genome in relative_genomes[ncbi_a]:
             for ncbi_b_genome in relative_genomes[ncbi_b]:
+                genomes_pair = (ncbi_a_genome, ncbi_b_genome)
                 q = query_for_getting_compl_ids(ncbi_a_genome, ncbi_b_genome)
-                if pair in complements_ids_queries:
-                    complements_ids_queries[pair].append(q)
+                if ncbi_pair in complements_ids_queries:
+                    complements_ids_queries[ncbi_pair][genomes_pair] = q
                 else:
-                    complements_ids_queries[pair] = [q]
+                    complements_ids_queries[ncbi_pair] = {}
+                    complements_ids_queries[ncbi_pair][genomes_pair] = q
 
     # Queries to the database to get complementarities
     cnx, cursor = create_cursor()
     pairs_to_compl_ids = {}
-    for pair, queries in complements_ids_queries.items():
-        for query in queries:
+    for ncbi_pair, genomes_pair_query in complements_ids_queries.items():
+        for genome_pair, query in genomes_pair_query.items():  # this should always be 1 case
             cursor.execute(query)
             query_result = cursor.fetchall()
             if len(query_result) > 0:
                 complements_ids_list = query_result[0][0].split(",")
-                """
-                [TODO] Check if correct; probably only last genome pair is returned for each ncbi id
-                """
-                pairs_to_compl_ids[pair] = complements_ids_list
+                if ncbi_pair not in pairs_to_compl_ids:
+                    pairs_to_compl_ids[ncbi_pair] = {}
+                elif genome_pair not in pairs_to_compl_ids:
+                    pairs_to_compl_ids[ncbi_pair][genome_pair] = []
+
+                pairs_to_compl_ids[ncbi_pair][genome_pair] = complements_ids_list
 
     # Queries to map unique complements ids to their extended. human readable version
     cnx, cursor = create_cursor()
     pairs_complements = {}
-    for pair, complementIds in pairs_to_compl_ids.items():
-        for complementId in complementIds:
-            query = "".join(
-                ["SELECT KoModuleId, complement, pathway FROM uniqueComplements WHERE complementId = '", complementId, "';"])
-            cursor.execute(query)
-            query_result = cursor.fetchall()
-            colored_pair_compl = build_kegg_urls([query_result])[0][0]
-            if pair in pairs_complements:
-                pairs_complements[pair].append(colored_pair_compl)
-            else:
-                pairs_complements[pair] = [colored_pair_compl]
+    for ncbi_pair, genomes_pair_complement in pairs_to_compl_ids.items():
+        for pair_of_genomes, complementId_list in genomes_pair_complement.items():
+            for complementId in complementId_list:
+                query = "".join(["SELECT KoModuleId, complement, pathway FROM uniqueComplements WHERE complementId = '", complementId, "';"])
+                cursor.execute(query)
+                query_result = cursor.fetchall()
+                colored_pair_compl = build_kegg_urls([query_result])[0][0]
+                if ncbi_pair not in pairs_complements:
+                    pairs_complements[ncbi_pair] = {}
+                if pair_of_genomes not in pairs_complements[ncbi_pair]:
+                    pairs_complements[ncbi_pair][pair_of_genomes] = []
+                pairs_complements[ncbi_pair][pair_of_genomes].append(colored_pair_compl)
 
     return pairs_complements
 
