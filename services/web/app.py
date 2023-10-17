@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, flash, request, session, send_file
 from flask_caching import Cache
-from werkzeug.utils import secure_filename
+# from werkzeug.utils import secure_filename
 import json
 import os
 import logging
@@ -63,20 +63,21 @@ def ncbi_ids_complements(beneficiary_ncbi_tax_id, donor_ncbi_tax_id):
     return jsonify(db_functions.get_complements_for_pair_of_ncbiIds(beneficiary_ncbi_tax_id, donor_ncbi_tax_id))
 
 
-@app.route('/upload-abundance-table', methods=['GET', 'POST'])
-def upload():
-    if request.method == 'POST':
+@app.route('/seed-scores/<string:ncbi_tax_id_seed_set_in>/<string:target_ncbi_tax_id>', methods=['GET'])
+def seed_scores(ncbi_tax_id_seed_set_in, target_ncbi_tax_id):
+    """
+    Gets genomes related to the ncbi ids provided and returns their seed scores using the all the genomes retrieved as
+    the target seed set.
+    """
+    return jsonify(db_functions.get_seed_scores_for_pair_of_ncbiIds(ncbi_tax_id_seed_set_in, target_ncbi_tax_id))
 
-        if 'file' in request.files:
-            tfile = request.files['file']
-            filename = secure_filename(tfile.filename)
-            tfile.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            return 'File copied to the server successfully'
 
-        f = open("/var/tmp/dev_output.json", "r")
-        g = json.load(f)
-
-        return g
+@app.route('/genomes-seed-scores/<string:gc_seed_set_in>/<string:target_gc>', methods=['GET'])
+def genomes_seed_scores(gc_seed_set_in, target_gc):
+    """
+    Returns seed scores using both gc ids as the target seed set.
+    """
+    return jsonify(db_functions.get_seed_scores_for_pair_of_genomes(gc_seed_set_in, target_gc))
 
 
 @app.route('/upload-abundance-table-dev', methods=['GET', 'POST'])
@@ -129,7 +130,7 @@ def upload_dev():
         if "metadata" in json_array:
             # [TODO]: check if an empty metadata entry is a nonetype or a string of 0 length
             metadata_table = os.path.join(out_dir, "metadata.tsv")
-            metadata.to_csv(metadata_table, sep="\t", header=False, index=False)
+            metadata_table.to_csv(metadata_table, sep="\t", header=False, index=False)
 
         # run microbetag
         annotated_network = microbetag.main(out_dir, args, abundance_table)

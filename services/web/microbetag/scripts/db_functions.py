@@ -43,12 +43,16 @@ def query_to_microbetagDB(phrase):
         print(phrase)
 
 
-def get_column_names():
+def get_column_names(db_table):
     """
     Get the column names of a database table
     """
-    phrase = "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='" +\
-             DB_NAME + "' AND `TABLE_NAME`='phenDB';"
+    phrase = "".join([
+        "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='",
+        DB_NAME,
+        "' AND `TABLE_NAME`='",
+        db_table, "';"
+    ])
     colnames = query_to_microbetagDB(phrase)
     colnames = [x[0] for x in colnames]
     return colnames
@@ -80,12 +84,13 @@ def execute(phrase):
 def get_genomes_for_ncbi_tax_id(ncbi_tax_id=1281578):
     """
     Get the genomes IDs that correspond to a NCBI Taxonomy Id and are present in the microbetagDB
+    Returns a dictionary.
     """
     query = "".join(
         ["SELECT genomeId from genome2taxNcbiId where ncbiTaxId = ", str(ncbi_tax_id), ";"])
     genome_ids = execute(query)
 
-    return {ncbi_tax_id: [x[0] for x in genome_ids]}
+    return {ncbi_tax_id: gc_unify([x[0] for x in genome_ids])}
 
 
 # Phen related
@@ -128,12 +133,7 @@ def get_complements_for_pair_of_genomes(
     available in the database.
     """
     q = query_for_getting_compl_ids(beneficiarys_genome_id, donors_genome_id)
-    # complements_ids_list_query = "".join(['SELECT complmentId FROM pathwayComplementarity WHERE beneficiaryGenome = "',
-    #                                       beneficiarys_genome_id,
-    #                                       '" AND donorGenome = "',
-    #                                       donors_genome_id,
-    #                                       '";'
-    #                                       ])
+
     export = execute(q)
     if len(export) > 0:
         complements_ids_list = export[0][0].split(",")
@@ -232,8 +232,14 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genom
 
 
 def query_for_getting_compl_ids(beneficiary, donor):
-    return "".join(['SELECT complmentId FROM pathwayComplementarity WHERE beneficiaryGenome = "', beneficiary,
-                    '" AND donorGenome = "', donor, '";'])
+    """
+    Gets 2 gc accession ids and returns a query for their pathway complementarities
+    """
+    beneficiary_alt = alt_genome_prefix(beneficiary)
+    donor_alt = alt_genome_prefix(donor)
+    return "".join(['SELECT complmentId FROM pathwayComplementarity WHERE (beneficiaryGenome = "', beneficiary,
+                    '" or beneficiaryGenome = "', beneficiary_alt,
+                    '") AND (donorGenome = "', donor, '" OR donorGenome = "', donor_alt, '");'])
 
 
 def build_kegg_urls(complements_for_a_pair_of_genomes):
@@ -287,40 +293,92 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
 
 # Seed scores related
 def get_seed_scores_for_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genomes):
-
+    """
+    """
     # Build the queries
     seed_scores_queries = {}
+
+    # Get all PATRIC ids corresponding to the relative_genomes
+    flat_list = [item for sublist in list(relative_genomes.values()) for item in sublist]
+    patricIds = get_patric_id_of_gc_accession_list(flat_list)
+
     for pair in list(pairs_of_interest):
+
         ncbi_a = pair[0]
         ncbi_b = pair[1]
-        for ncbi_a_genome in relative_genomes[ncbi_a]:
-            for ncbi_b_genome in relative_genomes[ncbi_b]:
-                q = query_for_getting_seed_scores(ncbi_a_genome, ncbi_b_genome)
-                if pair in seed_scores_queries:
-                    seed_scores_queries[pair].append(q)
-                else:
-                    seed_scores_queries[pair] = [q]
+
+        for ncbi_a_genome in gc_unify(relative_genomes[ncbi_a]):
+
+            for ncbi_b_genome in gc_unify(relative_genomes[ncbi_b]):
+
+                if patricIds[ncbi_a_genome] is None or patricIds[ncbi_b_genome] is None:
+                    continue
+
+                query_from_A_to_B, query_from_B_to_A = query_for_getting_seed_scores(patricIds[ncbi_a_genome], patricIds[ncbi_b_genome])
+
+                if len(query_from_A_to_B) > 1:
+
+                    if pair in seed_scores_queries:
+                        seed_scores_queries[pair][len(seed_scores_queries[pair])] = {}
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["organism-A"] = ncbi_a
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["organism-B"] = ncbi_b
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["genome-A"] = ncbi_a_genome
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["patric-genome-A"] = patricIds[ncbi_a_genome]
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["genome-B"] = ncbi_b_genome
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["patric-genome-B"] = patricIds[ncbi_b_genome]
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["query"] = query_from_A_to_B
+
+                        seed_scores_queries[pair][len(seed_scores_queries[pair])] = {}
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["organism-A"] = ncbi_b
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["organism-B"] = ncbi_a
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["genome-A"] = ncbi_b_genome
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["patric-genome-A"] = patricIds[ncbi_b_genome]
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["genome-B"] = ncbi_a_genome
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["patric-genome-B"] = patricIds[ncbi_a_genome]
+                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["query"] = query_from_B_to_A
+
+                    else:
+                        seed_scores_queries[pair] = {}
+                        seed_scores_queries[pair][0] = {}
+                        seed_scores_queries[pair][0]["organism-A"] = ncbi_a
+                        seed_scores_queries[pair][0]["organism-B"] = ncbi_b
+                        seed_scores_queries[pair][0]["genome-A"] = ncbi_a_genome
+                        seed_scores_queries[pair][0]["patric-genome-A"] = patricIds[ncbi_a_genome]
+                        seed_scores_queries[pair][0]["genome-B"] = ncbi_b_genome
+                        seed_scores_queries[pair][0]["patric-genome-B"] = patricIds[ncbi_b_genome]
+                        seed_scores_queries[pair][0]["query"] = query_from_A_to_B
+
+                        seed_scores_queries[pair][1] = {}
+                        seed_scores_queries[pair][1]["organism-A"] = ncbi_b
+                        seed_scores_queries[pair][1]["organism-B"] = ncbi_a
+                        seed_scores_queries[pair][1]["genome-A"] = ncbi_b_genome
+                        seed_scores_queries[pair][1]["patric-genome-A"] = patricIds[ncbi_b_genome]
+                        seed_scores_queries[pair][1]["genome-B"] = ncbi_a_genome
+                        seed_scores_queries[pair][1]["patric-genome-B"] = patricIds[ncbi_a_genome]
+                        seed_scores_queries[pair][1]["query"] = query_from_B_to_A
 
     # Query to the database
     cnx, cursor = create_cursor()
-    pairs_to_compl_ids = {}
-    for pair, queries in seed_scores_queries.items():
-        for query in queries:
-            cursor.execute(query)
-            query_result = cursor.fetchall()
-            if len(query_result) > 0:
-                complements_ids_list = query_result[0][0].split(",")
-                pairs_to_compl_ids[pair] = complements_ids_list
-    """
-    [TODO] add once db ready
-    """
+    for pair, cases in seed_scores_queries.items():
 
-    return
+        for number_case, case in cases.items():
+
+            cursor.execute(case["query"])
+            seed_score = cursor.fetchall()
+
+            if len(seed_score) > 0:
+                competition, cooperation = float(seed_score[0][0]), float(seed_score[0][1])
+                seed_scores_queries[pair][number_case]["competition"] = competition
+                seed_scores_queries[pair][number_case]["cooperation"] = cooperation
+
+    return seed_scores_queries
 
 
 def get_seed_scores_for_pair_of_ncbiIds(ncbiId_A, ncbiId_B):
+
     genomes_for_species_A = get_genomes_for_ncbi_tax_id(ncbiId_A)
     genomes_for_species_B = get_genomes_for_ncbi_tax_id(ncbiId_B)
+
     seeds_A_B = []
     seeds_B_A = []
     for genome_A in list(genomes_for_species_A.values())[0]:
@@ -333,37 +391,83 @@ def get_seed_scores_for_pair_of_ncbiIds(ncbiId_A, ncbiId_B):
 
 
 def get_seed_scores_for_pair_of_genomes(genome_A="GCA_003184265.1", genome_B="GCA_000015645.1"):
+    """
+    Function to get the seed scores of 2 GC accession ids.
+    Returns 2 tuples with the GC ids in the order used (source-target genomes), their competition and their cooperation score.
+    """
+    patricIds = get_patric_id_of_gc_accession_list([genome_A, genome_B])
 
-    query_from_A_to_B, query_from_B_to_A = query_for_getting_seed_scores(genome_A, genome_B)
+    query_from_A_to_B, query_from_B_to_A = query_for_getting_seed_scores(patricIds[genome_A], patricIds[genome_B])
 
     export = execute(query_from_A_to_B)
-    competition_score_A_B, complementarity_score_A_B = export[0][0], export[0][1]
+    try:
+        competition_score_A_B, cooperation_score_A_B = export[0][0], export[0][1]
+    except ValueError:
+        return "Competition and cooperation scores based on the seed sets derived from genome-scale reconstructions of those 2 genomes have not been calculated."
 
     export = execute(query_from_B_to_A)
-    competition_score_B_A, complementarity_score_B_A = export[0][0], export[0][1]
+    competition_score_B_A, cooperation_score_B_A = export[0][0], export[0][1]
 
-    seeds_A_B = genome_A, genome_B, competition_score_A_B, complementarity_score_A_B
-    seeds_B_A = genome_B, genome_A, competition_score_B_A, complementarity_score_B_A
+    seeds_A_B = genome_A, genome_B, competition_score_A_B, cooperation_score_A_B
+    seeds_B_A = genome_B, genome_A, competition_score_B_A, cooperation_score_B_A
 
     return seeds_A_B, seeds_B_A
 
 
-def query_for_getting_seed_scores(genome_A, genome_B):
-
+def query_for_getting_seed_scores(patric_genome_A, patric_genome_B):
+    """
+    Queries for getting from MySQL seed scores of a pair of genomes using both as sources and targets
+    Returns 2 strings
+    """
     query_from_A_to_B = "".join([
-        'SELECT Competition, Complementarity FROM seedScores WHERE genomeA = "',
-        genome_A,
-        '" AND genomeB = "',
-        genome_B,
+        'SELECT competitionScore, complementaritScore FROM seedScores WHERE patricGenomeA = "',
+        patric_genome_A,
+        '" AND patricGenomeB = "',
+        patric_genome_B,
         '";'
     ])
 
     query_from_B_to_A = "".join([
-        'SELECT Competition, Complementarity FROM seedScores WHERE genomeA = "',
-        genome_B,
-        '" AND genomeB = "',
-        genome_A,
+        'SELECT competitionScore, complementaritScore FROM seedScores WHERE patricGenomeA = "',
+        patric_genome_B,
+        '" AND patricGenomeB = "',
+        patric_genome_A,
         '";'
     ])
 
     return query_from_A_to_B, query_from_B_to_A
+
+
+def get_patric_id_of_gc_accession_list(gc_accesion_list=["GCA_003184265.1"]):
+    """
+    Gets as input a list of GC accession ids
+    Returns a dictionary where the gc ids are the keys and their corresponding PATRIC ids their values
+    """
+    gc_to_patric_dict = {}
+    for gc in gc_accesion_list:
+        gc_alt = alt_genome_prefix(gc)
+        if gc_alt != 0:
+            query = "".join(["SELECT patricId FROM patricId2genomeId where gtdbGenomeAccession = '", gc, "' OR gtdbGenomeAccession = '", gc_alt, "';"])
+            patricId = execute(query)
+            if len(patricId) > 0 and len(patricId[0]):
+                gc_to_patric_dict[gc] = patricId[0][0]
+            else:
+                gc_to_patric_dict[gc] = None
+    return gc_to_patric_dict
+
+
+def gc_unify(gc_list):
+    """
+    Remove duplicates of a genome that has entries both as GCA and GCF in the db.
+    """
+    return list(set([x.replace("GCA", "GCF") for x in gc_list]))
+
+
+def alt_genome_prefix(gc):
+    if gc.startswith("GCA_"):
+        gc_alt = gc.replace("GCA_", "GCF_")
+    elif gc.startswith("GCF_"):
+        gc_alt = gc.replace("GCF_", "GCA_")
+    else:
+        return 0
+    return gc_alt

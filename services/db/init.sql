@@ -138,6 +138,20 @@ FIELDS TERMINATED BY '\t'
 LINES TERMINATED BY '\n';
 
 
+CREATE TABLE your_temporary_table(
+    ncbiTaxId VARCHAR(13),
+	genomeId VARCHAR(20),
+    PRIMARY KEY (genomeId)
+);
+
+LOAD DATA INFILE '/var/lib/mysql-files/update_genomeId2ncbiTaxId.tsv' INTO TABLE your_temporary_table
+FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';
+
+INSERT IGNORE INTO genome2taxNcbiId
+SELECT * FROM your_temporary_table;
+
+DROP TABLE your_temporary_table;
+
 -- Table for pathway complementarities
 DROP TABLE IF EXISTS pathwayComplementarity;
 CREATE TABLE pathwayComplementarity(
@@ -165,14 +179,38 @@ CREATE INDEX genome_pair ON pathwayComplementarity(beneficiaryGenome, donorGenom
 /* /////////////////////////////////////////////
 	TABLEs RELATED TO SEED SCORES
 //////////////////////////////////////////////// */
+DROP TABLE IF EXISTS patricId2genomeId;
+CREATE TABLE patricId2genomeId(
+	gtdbGenomeAccession VARCHAR(15),
+	patricId VARCHAR(12),
+	PRIMARY KEY (patricId)
+);
 
+
+LOAD DATA INFILE '/var/lib/mysql-files/gtdb2patricIds.tsv'
+INTO TABLE patricId2genomeId
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n';
+
+
+
+
+DROP TABLE IF EXISTS seedScores;
 CREATE TABLE seedScores(
-	genomeA VARCHAR(15),
-	genomeB VARCHAR(15),
+	patricGenomeA VARCHAR(15),
+	patricGenomeB VARCHAR(15),
 	competitionScore DECIMAL(4,3),
 	complementaritScore DECIMAL(4,3)
 );
 
+
+LOAD DATA INFILE '/var/lib/mysql-files/all_scores.tsv'
+INTO TABLE seedScores
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n';
+
+
+CREATE INDEX genome_pair ON seedScores(patricGenomeA, patricGenomeB);
 
 /* remember!
 run mysql like this: 
