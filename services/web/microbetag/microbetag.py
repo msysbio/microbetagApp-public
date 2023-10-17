@@ -298,7 +298,8 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
     logging.info("""STEP: Constructing the annotated network""".center(80, "*"))
     annotated_network = annotate_network(base_network, cfg, seqID_taxid_level_repr_genome, out_dir)
 
-    with open(os.path.join(out_dir, "annotated.cyjs"), "w") as f:
+    net_file = "/".join([out_dir, 'annotated.cyjs'])
+    with open(net_file, "w") as f:
         json.dump(annotated_network, f)  # indent=4
 
     # Run manta
@@ -306,11 +307,9 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
         logging.info("""STEP: network clustering using manta and the abundance table""".center(80, "*"))
 
-        net_file = "/".join([out_dir, 'annotated.cyjs'])
-        manta_output_file = "/".join([out_dir, 'manta_annotated'])
-
         # Build the manta command
         # [TODO] consider how to go for --cluster_reliability and --reliability_permutations (default: 4)
+        manta_output_file = "/".join([out_dir, 'manta_annotated'])
         manta_params = [
             "manta",
             "-i", net_file,
@@ -324,11 +323,17 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         if os.system(manta_command) != 0:
             logging.error("""manta failed. Check network format""")
             sys.exit(0)
+
+        # Add manta annotations to main output file
+        annotated_network = json.load(open(net_file, "r"))
+
         manta_output_file = "".join([manta_output_file, ".cyjs"])
         manta_net = read_cyjson(manta_output_file)
+
         clusters = list(manta_net.nodes(data="cluster"))
         assignments = list(manta_net.nodes(data="assignment"))
         positions = list(manta_net.nodes(data="position"))
+
         manta_annotations = {}
         for pair in clusters:
             manta_annotations[pair[0]] = {}
@@ -338,12 +343,13 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         for pair in positions:
             manta_annotations[pair[0]]["position"] = pair[1]
 
-    for node in annotated_network["elements"]["nodes"]:
-        node["data"]["cluster"] = manta_annotations[node["data"]["id"]]["cluster"]
-        node["data"]["assignment"] = manta_annotations[node["data"]["id"]]["assignment"]
-        node["position"] = manta_annotations[node["data"]["id"]]["position"]
+        for node in annotated_network["elements"]["nodes"]:
+            node["data"]["cluster"] = manta_annotations[node["data"]["id"]]["cluster"]
+            node["data"]["assignment"] = manta_annotations[node["data"]["id"]]["assignment"]
+            node["position"] = manta_annotations[node["data"]["id"]]["position"]
 
-    with open(manta_output_file, "w") as f:
-        json.dump(annotated_network, f)  # indent=4
+        # Dump manta annotated file
+        with open(manta_output_file, "w") as f:
+            json.dump(annotated_network, f)  # indent=4
 
     return annotated_network
