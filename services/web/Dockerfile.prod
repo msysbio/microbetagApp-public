@@ -5,8 +5,8 @@
 FROM python:3.11.3-slim-buster as builder
 
 # install system dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc
+RUN apt-get update 
+RUN apt-get install -y --no-install-recommends gcc
 
 # lint
 RUN pip install --upgrade pip
@@ -72,7 +72,8 @@ RUN wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz && \
 
 # Get manta and fuzz
 WORKDIR $APP_HOME
-RUN python -m pip install git+https://github.com/ramellose/manta.git fuzzywuzzy
+RUN python -m pip install fuzzywuzzy
+RUN python -m pip install git+https://github.com/hariszaf/manta.git@fix-random 
 
 # copy project
 COPY . $APP_HOME

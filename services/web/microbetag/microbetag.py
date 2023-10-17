@@ -7,6 +7,7 @@ from microbetag.scripts.variables import *
 import os
 import sys
 import json
+import networkx as nx
 
 version = "v0.1.0"
 license = ("GPLv3",)
@@ -71,13 +72,13 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
     # Fix arguments
     default_args = {
-        "get_children": True, 
-        "sensitive": "true", 
-        "heterogeneous": "false", 
-        "phenDB": True, 
+        "get_children": True,
+        "sensitive": "true",
+        "heterogeneous": "false",
+        "phenDB": True,
         "faprotax": True,
-        "pathway_complement": True, 
-        "seed_scores": False, 
+        "pathway_complement": True,
+        "seed_scores": False,
         "manta": False
     }
     for i in list(default_args.keys()):
@@ -166,18 +167,17 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         base_network = build_base_graph(edgelist_as_a_list_of_dicts, microb_id_taxonomy)
 
         with open(os.path.join(out_dir, "basenet.json"), "w") as f:
-            json.dump(base_network, f)
+            json.dump(base_network, f, indent=4)
 
         logging.info("Base network has been built and saved.")
 
     # Phen annotations
-    print(repr_genomes_present)
     if cfg["phenDB"]:
 
         logging.info("STEP: PhenDB ".center(80, "*"))
 
         # Get phen traits for each GTDB genome present on your table
-        feats = get_column_names()
+        feats = get_column_names("phenDB")
         feats.insert(1, "NCBI_ID")
         feats.insert(1, "Species")
         traits = []
@@ -252,6 +252,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
                     to species/strain to species/strain level associations of the network
                     Let's find those pairs!""")
 
+        # genomes_of_species_nodes > a dictionary with the genomes assigned (values) to each ncbi id (key)
         species_level_associations, genomes_of_species_nodes, parent_children_ncbiIds_present = export_species_level_associations(edgelist_as_a_list_of_dicts)
 
     # Pathway complementarity
@@ -276,41 +277,73 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
     # Seed - based scores
     if cfg["seed_scores"]:
-        logging.info("""STEP: Competition and complementarity scores between associated species/strains based on their drafte genome-scale
-                   reconstructions and the Seed appraoch.""".center(80, "*"))
+
+        logging.info("""STEP: Seed scores based on draft genome-scale reconstructions.""".center(80, "*"))
 
         ncbi_id_pairs_with_seed_scores = get_seed_scores_for_list_of_pair_of_ncbiIds(species_level_associations, genomes_of_species_nodes)
 
         if not os.path.exists(seed_scores_dir):
             os.mkdir(seed_scores_dir)
 
-        print(ncbi_id_pairs_with_seed_scores)
+        ncbi_id_pairs_with_seed_scores = remove_query(ncbi_id_pairs_with_seed_scores)
+        ncbi_id_pairs_with_seed_scores = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_seed_scores.items()}
+        ncbi_id_pairs_with_seed_scores_str = convert_tuples_to_strings(ncbi_id_pairs_with_seed_scores)
 
         with open(os.path.join(seed_scores_dir, "seed_scores.json"), "w") as f:
-            # ncbi_id_pairs_with_seed_scores = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_seed_scores.items()}
-            json.dump(ncbi_id_pairs_with_seed_scores, f)
+            json.dump(ncbi_id_pairs_with_seed_scores_str, f)
 
         logging.info("Seed scores have been assigned successfully.". center(80, "*"))
 
-    if cfg["manta"]:
-        if not edge_list_file:
-            logging.info("""STEP: network clustering using manta and the abundance table""".center(80, "*"))
-
-            # fix input data
-            os.system("sed  '1,2d'  flashweave/network_detailed_output.edgelist  > edgelist_for_manta.txt")
-
-            manta_params = [
-                "manta",
-                "-i", "edgelist_for_manta.txt"
-                "--layout",
-                "--"
-            ]  # check also how to return the weights.
-
     # Build output; an annotated graph
-    logging.info("""STEP: Constructing the annotated network""")
+    logging.info("""STEP: Constructing the annotated network""".center(80, "*"))
     annotated_network = annotate_network(base_network, cfg, seqID_taxid_level_repr_genome, out_dir)
 
-    with open(os.path.join(out_dir, "annotated_network.json"), "w") as f:
-        json.dump(annotated_network, f)
+    with open(os.path.join(out_dir, "annotated.cyjs"), "w") as f:
+        json.dump(annotated_network, f)  # indent=4
+
+    # Run manta
+    if cfg["manta"]:
+
+        logging.info("""STEP: network clustering using manta and the abundance table""".center(80, "*"))
+
+        net_file = "/".join([out_dir, 'annotated.cyjs'])
+        manta_output_file = "/".join([out_dir, 'manta_annotated'])
+
+        # Build the manta command
+        # [TODO] consider how to go for --cluster_reliability and --reliability_permutations (default: 4)
+        manta_params = [
+            "manta",
+            "-i", net_file,
+            "-f", "cyjs",
+            "-o", manta_output_file,
+            "--layout"
+        ]
+        manta_command = " ".join(manta_params)
+
+        # Run manta
+        if os.system(manta_command) != 0:
+            logging.error("""manta failed. Check network format""")
+            sys.exit(0)
+        manta_output_file = "".join([manta_output_file, ".cyjs"])
+        manta_net = read_cyjson(manta_output_file)
+        clusters = list(manta_net.nodes(data="cluster"))
+        assignments = list(manta_net.nodes(data="assignment"))
+        positions = list(manta_net.nodes(data="position"))
+        manta_annotations = {}
+        for pair in clusters:
+            manta_annotations[pair[0]] = {}
+            manta_annotations[pair[0]]["cluster"] = pair[1]
+        for pair in assignments:
+            manta_annotations[pair[0]]["assignment"] = pair[1]
+        for pair in positions:
+            manta_annotations[pair[0]]["position"] = pair[1]
+
+    for node in annotated_network["elements"]["nodes"]:
+        node["data"]["cluster"] = manta_annotations[node["data"]["id"]]["cluster"]
+        node["data"]["assignment"] = manta_annotations[node["data"]["id"]]["assignment"]
+        node["position"] = manta_annotations[node["data"]["id"]]["position"]
+
+    with open(manta_output_file, "w") as f:
+        json.dump(annotated_network, f)  # indent=4
 
     return annotated_network
