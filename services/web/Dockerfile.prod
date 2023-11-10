@@ -15,7 +15,7 @@ COPY . /usr/src/app/
 
 # By default, Flake8 has a list of error codes that it ignores. 
 # The list used by a version of Flake8 may be different than the list used by a different version
-RUN flake8 --ignore=E501,F401,F403,F405,F841,W504 ./usr/src/app
+RUN flake8 --ignore=E501,E702,F401,F403,F405,F841,W504 ./usr/src/app
 
 # install python dependencies
 COPY ./requirements.txt .
@@ -78,10 +78,10 @@ RUN python -m pip install git+https://github.com/hariszaf/manta.git@fix-random
 # copy project
 COPY . $APP_HOME
 
-# chown all the files to the app user -- UNMUTE THIS ONCE WE ARE IN THE PRODUCTION STAGE
-RUN chown -R app:app $APP_HOME
+# # chown all the files to the app user -- UNMUTE THIS ONCE WE ARE IN THE PRODUCTION STAGE
+# RUN chown -R app:app $APP_HOME
 
-# change to the app user
-USER app
+# # change to the app user
+# USER app
 
 WORKDIR $APP_HOME

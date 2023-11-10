@@ -127,3 +127,19 @@ and remove the pass phrase as shown [here](https://help.cloud66.com/docs/securit
 Challenges:
 - [`argparse` in nginx](https://github.com/benoitc/gunicorn/issues/1867)
 
+
+
+## Notes after destroying `/data``
+
+
+failed to update store for object type *libnetwork.endpointCnt: Key not found in store
+
+this fixes by running 
+sudo service docker restart
+
+
+## VM overall
+
+consider of crontabs removing for example /tmp folders
+
+
