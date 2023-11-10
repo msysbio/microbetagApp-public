@@ -54,7 +54,7 @@ CREATE TABLE phenDB(
 	isobutyricAcid VARCHAR(5),
 	isobutyricAcidScore DECIMAL(5,4),
     isovalericAcid VARCHAR(5), 
-    isovalericAcidScire DECIMAL(5,4), 
+    isovalericAcidScore DECIMAL(5,4), 
 	lLacticAcid VARCHAR(5),
 	lLacticAcidScore DECIMAL(5,4),    
 	methanotroph VARCHAR(5),

@@ -55,21 +55,49 @@ def get_related_genomes(ncbiTaxId):
 
 @app.route('/genome-complements/<string:beneficiary_genome>/<string:donor_genome>', methods=['GET'])
 def genomes_complements(beneficiary_genome, donor_genome):
-    return jsonify(db_functions.get_complements_for_pair_of_genomes(beneficiary_genome, donor_genome))
+    """
+    Gets complements that a donor can provide to a baneficiary genome.
+
+    """
+    r = db_functions.get_complements_for_pair_of_genomes(beneficiary_genome, donor_genome)
+    d = {}
+    d["beneficiary-genome"] = beneficiary_genome
+    d["donor-genome"] = donor_genome
+    d["complements"] = {}
+    counter = 0
+    for case in r:
+        d["complements"][counter] = {}
+        d["complements"][counter]["module"] = case[0][0]
+        d["complements"][counter]["complement"] = case[0][1]
+        d["complements"][counter]["complete-alternative"] = case[0][2]
+        d["complements"][counter]["coloured-map"] = case[0][3]
+        counter += 1
+    return jsonify(d)
 
 
-@app.route('/complements/<int:beneficiary_ncbi_tax_id>/<int:donor_ncbi_tax_id>', methods=['GET'])
+@app.route('/complements/<string:beneficiary_ncbi_tax_id>/<string:donor_ncbi_tax_id>', methods=['GET'])
 def ncbi_ids_complements(beneficiary_ncbi_tax_id, donor_ncbi_tax_id):
     return jsonify(db_functions.get_complements_for_pair_of_ncbiIds(beneficiary_ncbi_tax_id, donor_ncbi_tax_id))
 
 
-@app.route('/seed-scores/<string:ncbi_tax_id_seed_set_in>/<string:target_ncbi_tax_id>', methods=['GET'])
-def seed_scores(ncbi_tax_id_seed_set_in, target_ncbi_tax_id):
+@app.route('/seed-scores/<string:ncbiId_A>/<string:ncbiId_B>', methods=['GET'])
+def seed_scores(ncbiId_A, ncbiId_B):
     """
     Gets genomes related to the ncbi ids provided and returns their seed scores using the all the genomes retrieved as
     the target seed set.
     """
-    return jsonify(db_functions.get_seed_scores_for_pair_of_ncbiIds(ncbi_tax_id_seed_set_in, target_ncbi_tax_id))
+    r = db_functions.get_seed_scores_for_pair_of_ncbiIds(ncbiId_A, ncbiId_B)
+    a2b, b2a = r[0], r[1]
+    d = {}
+    d[0] = {}
+    d[1] = {}
+    d[0]["A"] = ncbiId_A
+    d[0]["B"] = ncbiId_B
+    d[0]["scores"] = db_functions.scores_to_dict(a2b)
+    d[1]["A"] = ncbiId_B
+    d[1]["B"] = ncbiId_A
+    d[1]["scores"] = db_functions.scores_to_dict(b2a)
+    return jsonify(d)
 
 
 @app.route('/genomes-seed-scores/<string:gc_seed_set_in>/<string:target_gc>', methods=['GET'])
