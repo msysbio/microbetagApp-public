@@ -3,10 +3,28 @@ import os
 import decimal
 import pandas as pd
 import mysql.connector
+from mysql.connector import pooling
 from .variables import *
-
+import logging
 
 # General
+def init_connection_pool():
+    """
+    Initiates a connection pool.
+    A pool opens a number of connections and handles thread safety when providing connections to requesters.
+    For more see: https://dev.mysql.com/doc/connector-python/en/connector-python-connection-pooling.html
+    """
+    connection_pool = pooling.MySQLConnectionPool(
+        pool_name="microbetagDB_pool",
+        pool_size=5,
+        user=USER_NAME,
+        password=PASSWORD,
+        host=HOST,
+        database=DB_NAME
+    )
+    return connection_pool
+
+
 def create_cursor():
     """
     Creates a connection to the microbetagDB; gets values from the variables.py.
@@ -17,33 +35,17 @@ def create_cursor():
     return cnx, cursor
 
 
-def query_to_microbetagDB(phrase):
+def execute_in_a_pool(cursor, query):
     """
-    Function to get functional traits as assigned in a genome from the phenotrex software
-    phenotrex.readthedocs.io/ and stored in the microbetagDB.
+    Executes a query using a connection from the connection pool.
     """
     try:
-        cnx = mysql.connector.connect(user=USER_NAME, password=PASSWORD, host=HOST, database=DB_NAME)
-        cnx.get_warnings = True
-        cursor = cnx.cursor()
-        cursor.execute(phrase)
-
-        res = []
-        for row in cursor:
-            res.append(row)
-
-        warnings = cursor.fetchwarnings()
-        if warnings:
-            for i in range(len(warnings)):
-                print("\t ** Warning - " + warnings[i][2])
-        cursor.close()
-        cnx.commit()
-        cnx.close()
-        return res
-
+        cursor.execute(query)
+        result = [row for row in cursor]
+        return result
     except mysql.connector.Error as err:
         print("Something went wrong: {}".format(err))
-        print(phrase)
+        print(query)
 
 
 def get_column_names(db_table):
@@ -56,7 +58,7 @@ def get_column_names(db_table):
         "' AND `TABLE_NAME`='",
         db_table, "';"
     ])
-    colnames = query_to_microbetagDB(phrase)
+    colnames = execute(phrase)
     colnames = [x[0] for x in colnames]
     return colnames
 
@@ -66,12 +68,13 @@ def execute(phrase):
     Establish a database connection and perform an action
     """
     # Database connection configuration
+    # [TODO] Switch to "db" when running on the container
     config = {
-        'user': 'msysbio',
-        'password': 'pass',
-        'host': 'db',  # Replace with the actual database service name or IP address
-        'port': 3306,  # Replace with the actual port
-        'database': 'microbetagDB'
+        'user': USER_NAME,
+        'password': PASSWORD,
+        'host': HOST,  # 'db'
+        'port': DB_PORT,
+        'database': DB_NAME
     }
     cnx = mysql.connector.connect(**config)
     cursor = cnx.cursor()
@@ -114,7 +117,7 @@ def get_phendb_traits(gtdb_genome_id="GCA_018819265.1"):
         query = "".join(["SELECT * FROM phenDB WHERE gtdbId = '", gtdb_genome_id, "';"])
         rows = execute(query)
         if len(rows) == 0:
-            print("This is not a NCBI accession id. It could be a MGnify or a KEGG one.")
+            logging.info("".join(["Genome", gtdb_genome_id, "is not a NCBI accession id. It could be a MGnify or a KEGG one."]))
             return 0
     query_colnames = "SHOW COLUMNS FROM phenDB;"
     colnames = [list(x)[0] for x in execute(query_colnames)]
@@ -162,23 +165,42 @@ def get_complements_for_pair_of_ncbiIds(beneficiarys_ndbi_id=1281578, donors_ncb
         complements[beneficiary_genome] = {}
         for donor_genome in list(donors_genomes.values())[0]:
             pair_compl = get_complements_for_pair_of_genomes(str(beneficiary_genome), str(donor_genome))
-            # if pair_compl is not None:
-            #     colored_pair_compl = build_kegg_urls(pair_compl)
-            #     complements[beneficiary_genome][donor_genome] = colored_pair_compl
-
+            if pair_compl is not None:
+                complements[beneficiary_genome][donor_genome] = pair_compl
     return complements
 
 
-def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genomes):
+def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '729')}, 
+                                               relative_genomes={'553174': {'GCF_000144405.1'}, 
+                                                                 '729': {'GCF_007666205.1', 'GCF_000154205.1', 'GCF_001275345.1', 'GCF_902810435.1', 
+                                                                         'GCF_000174815.1', 'GCF_002550035.1', 'GCF_003287405.1'}}):
     """
-    Gets a list of dictionaries as input that describes the edges of a network and returns the complementarities
+    Gets a set of dictionaries as input that describes the edges of a network and returns the complementarities
     as a dictionary where a pair of ncbi ids is the key and a list with complementarities the value
     e.g.: ()
     This function is running as part of the microbetag pipeline while the others mostly support the microbetag API.
     By running chunks of queries using the same cursor, we save quite some time.
+
+    pairs_of_interest: {('553174', '729')}
+
+    relative genmes: {'553174': {'GCF_000144405.1'},
+                    '729': {'GCF_007666205.1', 'GCF_000154205.1', 'GCF_001275345.1', 'GCF_902810435.1',...,'GCF_003287405.1' }}
     """
+    import time 
+    s2 = time.time()
+
+    # Init a pool
+    cnx_pool = init_connection_pool()
+    my_connection = cnx_pool.get_connection()
+    cursor = my_connection.cursor()
+
     # Build the queries
+    logging.info("============  Build queries  =============== ")
+    print("Number of pairs of interest:", str(len(pairs_of_interest)))
+    print("Number of relative genomes:", str(len(relative_genomes)))
+
     complements_ids_queries = {}
+    unique_queries = set()
     for ncbi_pair in list(pairs_of_interest):
         ncbi_a = ncbi_pair[0]
         ncbi_b = ncbi_pair[1]
@@ -186,56 +208,93 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genom
             for ncbi_b_genome in relative_genomes[ncbi_b]:
                 genomes_pair = (ncbi_a_genome, ncbi_b_genome)
                 q = query_for_getting_compl_ids(ncbi_a_genome, ncbi_b_genome)
+                unique_queries.add(q)
                 if ncbi_pair in complements_ids_queries:
                     complements_ids_queries[ncbi_pair][genomes_pair] = q
                 else:
                     complements_ids_queries[ncbi_pair] = {}
                     complements_ids_queries[ncbi_pair][genomes_pair] = q
 
-    # Queries to the database to get complementarities
-    cnx, cursor = create_cursor()
+    # Queries to the database to get complementarities ids
+    logging.info("======== Make queries to get complement ids   ==============")
     pairs_to_compl_ids = {}
-    for ncbi_pair, genomes_pair_query in complements_ids_queries.items():
-        for genome_pair, query in genomes_pair_query.items():  # this should always be 1 case
-            cursor.execute(query)
-            query_result = cursor.fetchall()
-            if len(query_result) > 0:
-                complements_ids_list = query_result[0][0].split(",")
-                if ncbi_pair not in pairs_to_compl_ids:
-                    pairs_to_compl_ids[ncbi_pair] = {}
-                elif genome_pair not in pairs_to_compl_ids:
-                    pairs_to_compl_ids[ncbi_pair][genome_pair] = []
+    unique_queries2comples = {}
+    for query in unique_queries:
+        query_result = execute_in_a_pool(cursor, query)
+        if len(query_result) > 0:
+            complements_ids_list = query_result[0][0].split(",")
+            unique_queries2comples[query] = complements_ids_list
 
-                pairs_to_compl_ids[ncbi_pair][genome_pair] = complements_ids_list
+    logging.info("map complIds retrieved to their corresponding edges")
+    for ncbi_pair, genomes_pair_query in complements_ids_queries.items():
+        for genome_pair, query in genomes_pair_query.items():
+            if query not in unique_queries2comples:
+                continue
+            if ncbi_pair not in pairs_to_compl_ids:
+                pairs_to_compl_ids[ncbi_pair] = {}
+            elif genome_pair not in pairs_to_compl_ids:
+                pairs_to_compl_ids[ncbi_pair][genome_pair] = []
+            pairs_to_compl_ids[ncbi_pair][genome_pair] = unique_queries2comples[query]
 
     # Queries to map unique complements ids to their extended. human readable version
-    cnx, cursor = create_cursor()
+    logging.info("Make a set with the unique complIds")
+    cnx_pool = init_connection_pool()
+    my_connection = cnx_pool.get_connection()
+    cursor = my_connection.cursor()
+
+    unique_compl_ids = set()
+    for ncbi_pair, genome_pairs in pairs_to_compl_ids.items():
+        for genome_pair, compl_list in genome_pairs.items():
+            for complID in compl_list:
+                unique_compl_ids.add(complID)
+
+    """
+    NOTE: We make a list of the ids so it is ordered. Then, the ORDER BY FIELD ensures the mysql query results is also ordered 
+    Finally, we make a dicionary (all_compl_ids2coloured_compls) withd compl id as key and its coloured complement as value
+    """    
+    unique_compl_ids = list(unique_compl_ids)
+    print("Unique compl ids: ", str(len(unique_compl_ids)))
+    query = """SELECT KoModuleId, complement, pathway FROM uniqueComplements 
+            WHERE complementId IN ('{}') ORDER BY FIELD(complementId, '{}');""".format(
+                "','".join(unique_compl_ids), "','".join(unique_compl_ids))
+
+    logging.info("Run queries to map the compl ids to the complete 4-columns complements")
+    query_result = execute_in_a_pool(cursor, query)
+    query_result_list = [[r] for r in query_result]
+    colored_complements_list = build_kegg_urls(query_result_list)
+
+    logging.info("Map ids to coloured comples")
+    all_compl_ids2coloured_compls = {}
+    for ckey, cvalue in zip(unique_compl_ids, colored_complements_list):
+        all_compl_ids2coloured_compls[ckey] = cvalue
+
+    logging.info("Make pairs_complements dict")
+    """
+    NOTE Currently, this is the most time-consuming step; find alternative 
+    """
     pairs_complements = {}
     for ncbi_pair, genomes_pair_complement in pairs_to_compl_ids.items():
         for pair_of_genomes, complementId_list in genomes_pair_complement.items():
             for complementId in complementId_list:
-                query = "".join(["SELECT KoModuleId, complement, pathway FROM uniqueComplements WHERE complementId = '", complementId, "';"])
-                cursor.execute(query)
-                query_result = cursor.fetchall()
-                colored_pair_compl = build_kegg_urls([query_result])[0][0]
                 if ncbi_pair not in pairs_complements:
                     pairs_complements[ncbi_pair] = {}
                 if pair_of_genomes not in pairs_complements[ncbi_pair]:
                     pairs_complements[ncbi_pair][pair_of_genomes] = []
-                pairs_complements[ncbi_pair][pair_of_genomes].append(colored_pair_compl)
-
+                pairs_complements[ncbi_pair][pair_of_genomes].append(all_compl_ids2coloured_compls[complementId])
+    e2 = time.time()
+    logging.info("".join(["Total time to get complements", str(e2 - s2)]))
     return pairs_complements
 
 
-def query_for_getting_compl_ids(beneficiary, donor):
+def query_for_getting_compl_ids(beneficiary="GCA_003184265.1", donor="GCA_000015645.1"):
     """
     Gets 2 gc accession ids and returns a query for their pathway complementarities
     """
     beneficiary_alt = alt_genome_prefix(beneficiary)
     donor_alt = alt_genome_prefix(donor)
     return "".join(['SELECT complmentId FROM pathwayComplementarity WHERE (beneficiaryGenome = "', str(beneficiary),
-                    '" or beneficiaryGenome = "', beneficiary_alt,
-                    '") AND (donorGenome = "', str(donor), '" OR donorGenome = "', donor_alt, '");'])
+                    '" or beneficiaryGenome = "', str(beneficiary_alt),
+                    '") AND (donorGenome = "', str(donor), '" OR donorGenome = "', str(donor_alt), '");'])
 
 
 def build_kegg_urls(complements_for_a_pair_of_genomes):
@@ -243,12 +302,13 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
     Takes as input the complements list between two genomes and
     build urls to colorify the related to the module kegg map based on the KO terms of the beneficiary (pink)
     and those it gets from the donor (green).
+    NOTE: some modules do not belong to any map, e.g. https://www.kegg.jp/module/M00705. In these cases, we will have a N/A value in the url.
     """
     # Load the dictionary with the kegg modules and their corresponding maps
     color_mapp_base_url = "https://www.kegg.jp/kegg-bin/show_pathway?"
     present_kos_color = "%09%23EAD1DC/"
     complemet_kos_color = "%09%2300A898/"
-    maps = open("/home/app/web/static/module_map_pairs.tsv", "r")
+    maps = open(os.path.join(MAPPINGS, "module_map_pairs.tsv"), "r")  # open("/home/app/web/static/module_map_pairs.tsv", "r")
     module_map = {}
     for line in maps:
         module, mmap = line.split("\t")
@@ -296,11 +356,24 @@ def get_seed_scores_for_list_of_pair_of_ncbiIds(pairs_of_interest, relative_geno
     # Get all PATRIC ids corresponding to the relative_genomes
     flat_list = [item for sublist in list(relative_genomes.values()) for item in sublist]
     patricIds = get_patric_id_of_gc_accession_list(flat_list)
+
     for pair in list(pairs_of_interest):
         ncbi_a = pair[0]
         ncbi_b = pair[1]
-        for ncbi_a_genome in gc_unify(relative_genomes[ncbi_a]):
-            for ncbi_b_genome in gc_unify(relative_genomes[ncbi_b]):
+
+        genomes_for_A = relative_genomes[ncbi_a] + gc_unify(relative_genomes[ncbi_a])
+        genomes_for_B = relative_genomes[ncbi_b] + gc_unify(relative_genomes[ncbi_b])
+
+        for ncbi_a_genome in genomes_for_A:
+
+            if ncbi_a_genome not in patricIds:
+                continue
+
+            for ncbi_b_genome in genomes_for_B:
+
+                if ncbi_b_genome not in patricIds:
+                    continue
+                
                 if patricIds[ncbi_a_genome] is None or patricIds[ncbi_b_genome] is None:
                     continue
                 # [NOTE] We do not use query_from_B_to_A as all associations are double (both A->B and B->A) in the pairs_of_interest
@@ -340,7 +413,6 @@ def get_seed_scores_for_list_of_pair_of_ncbiIds(pairs_of_interest, relative_geno
     seed_scores = {}
     for k, v in seed_scores_queries.items():
         seed_scores[k] = {}
-        # filtered_data = {l: m for l, m in v.items() if 'competition' in list(m.keys())}
         filtered_data = {rindex: rdata for rindex, rdata in v.items() if 'competition' in list(rdata.keys())}
         seed_scores[k] = filtered_data
 
