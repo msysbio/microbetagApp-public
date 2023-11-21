@@ -15,7 +15,7 @@ SEQ_COL = "seqId"
 COM_CHAR = "#"
 
 # DATABASE
-HOST = "db"
+HOST = "172.19.0.2"  # [TODO] Change to "db"
 USER_NAME = "msysbio"
 PASSWORD = "pass"
 DB_NAME = "microbetagDB"
