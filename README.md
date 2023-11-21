@@ -129,7 +129,7 @@ Challenges:
 
 
 
-## Notes after destroying `/data``
+## Notes after destroying `/data`
 
 
 failed to update store for object type *libnetwork.endpointCnt: Key not found in store
