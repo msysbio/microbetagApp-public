@@ -37,7 +37,7 @@ def index() -> str:
 
 
 @app.route('/phen-traits/<string:gtdb_genome_id>', methods=['GET'])
-def phen_traits(gtdb_genome_id):
+def phen_traits(gtdb_genome_id="GCF_002550015.1"):
     """ Route to get phenotypic traits for a certain genome id based on phenDB classes """
     phen_traits = db_functions.get_phendb_traits(gtdb_genome_id)
     if phen_traits == 0:
@@ -46,15 +46,18 @@ def phen_traits(gtdb_genome_id):
         return message
     else:
         return jsonify(phen_traits)
+        # return phen_traits
 
 
 @app.route('/ncbiTaxId-to-genomeId/<int:ncbiTaxId>', methods=['GET'])
-def get_related_genomes(ncbiTaxId):
-    return jsonify(db_functions.get_genomes_for_ncbi_tax_id(ncbiTaxId))
+def get_related_genomes(ncbiTaxId=1598):
+    q = db_functions.get_genomes_for_ncbi_tax_id(ncbiTaxId)
+    return jsonify(q)
+    # return q
 
 
 @app.route('/genome-complements/<string:beneficiary_genome>/<string:donor_genome>', methods=['GET'])
-def genomes_complements(beneficiary_genome, donor_genome):
+def genomes_complements(beneficiary_genome="GCA_011364525.1", donor_genome="GCA_002980625.1"):
     """
     Gets complements that a donor can provide to a baneficiary genome.
 
@@ -72,16 +75,18 @@ def genomes_complements(beneficiary_genome, donor_genome):
         d["complements"][counter]["complete-alternative"] = case[0][2]
         d["complements"][counter]["coloured-map"] = case[0][3]
         counter += 1
+    # return d
     return jsonify(d)
 
-
 @app.route('/complements/<string:beneficiary_ncbi_tax_id>/<string:donor_ncbi_tax_id>', methods=['GET'])
-def ncbi_ids_complements(beneficiary_ncbi_tax_id, donor_ncbi_tax_id):
-    return jsonify(db_functions.get_complements_for_pair_of_ncbiIds(beneficiary_ncbi_tax_id, donor_ncbi_tax_id))
+def ncbi_ids_complements(beneficiary_ncbi_tax_id="2184738", donor_ncbi_tax_id="86180"):
+    q = db_functions.get_complements_for_pair_of_ncbiIds(beneficiary_ncbi_tax_id, donor_ncbi_tax_id)
+    # return q
+    return jsonify(q)
 
 
 @app.route('/seed-scores/<string:ncbiId_A>/<string:ncbiId_B>', methods=['GET'])
-def seed_scores(ncbiId_A, ncbiId_B):
+def seed_scores(ncbiId_A="86180", ncbiId_B="2184738"):
     """
     Gets genomes related to the ncbi ids provided and returns their seed scores using the all the genomes retrieved as
     the target seed set.
@@ -97,15 +102,18 @@ def seed_scores(ncbiId_A, ncbiId_B):
     d[1]["A"] = ncbiId_B
     d[1]["B"] = ncbiId_A
     d[1]["scores"] = db_functions.scores_to_dict(b2a)
+    # return d
     return jsonify(d)
 
 
 @app.route('/genomes-seed-scores/<string:gc_seed_set_in>/<string:target_gc>', methods=['GET'])
-def genomes_seed_scores(gc_seed_set_in, target_gc):
+def genomes_seed_scores(gc_seed_set_in="GCA_011364525.1", target_gc="GCA_002980625.1"):
     """
     Returns seed scores using both gc ids as the target seed set.
     """
-    return jsonify(db_functions.get_seed_scores_for_pair_of_genomes(gc_seed_set_in, target_gc))
+    p = db_functions.get_seed_scores_for_pair_of_genomes(gc_seed_set_in, target_gc)
+    # return p
+    return jsonify(p)
 
 
 @app.route('/upload-abundance-table-dev', methods=['GET', 'POST'])
