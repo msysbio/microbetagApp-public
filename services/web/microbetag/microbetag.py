@@ -5,7 +5,7 @@ from microbetag.scripts.db_functions import *
 from microbetag.scripts.logger import *
 from microbetag.scripts.variables import *
 import os
-import sys
+import subprocess
 import json
 import networkx as nx
 
@@ -87,63 +87,63 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         metadata_file = "false"
 
     # Abundance table preprocess
-    if abundance_table_file:
+    if abundance_table_file is None:
+        logging.error(""" microbetag requires an abundance table. """)
 
-        logging.info("STEP: Assign NCBI Tax Id and GTDB reference genomes".center(80, "*"))
 
-        # Abundance table as a pd dataframe
-        abundance_table = is_tab_separated(abundance_table_file, TAX_COL)
+    """
+    Parse abundance table to match taxa to microbetag genomes
+    """
+    logging.info("STEP: Assign NCBI Tax Id and GTDB reference genomes".center(80, "*"))
 
-        if not edge_list_file:
+    # Abundance table as a pd dataframe
+    abundance_table = is_tab_separated(abundance_table_file, TAX_COL)
 
-            logging.info(
-                "The user has not provided an edge list. microbetag will build one using FlashWeaeve.")
-            if not os.path.exists(flashweave_output_dir):
-                os.mkdir(flashweave_output_dir)
+    if not edge_list_file:
+        logging.info("The user has not provided an edge list. microbetag will build one using FlashWeaeve.")
+        if not os.path.exists(flashweave_output_dir):
+            os.mkdir(flashweave_output_dir)
+        # ext remains a pd dataframe
+        ext = ensure_flashweave_format(abundance_table, TAX_COL, SEQ_COL, flashweave_output_dir)
 
-            # ext remains a pd dataframe
-            ext = ensure_flashweave_format(abundance_table, TAX_COL, SEQ_COL, flashweave_output_dir)
+    else:
+        ext = abundance_table.copy()
+        ext["microbetag_id"] = abundance_table[SEQ_COL]
 
-        else:
-            ext = abundance_table.copy()
-            ext["microbetag_id"] = abundance_table[SEQ_COL]
+    # Map taxonomies to ontology ids
+    logging.info(
+        "Get the NCBI Taxonomy id for those OTUs that have been assigned either at the species, the genus or the family level.")
 
-        # Map taxonomies to ontology ids
-        logging.info(
-            "Get the NCBI Taxonomy id for those OTUs that have been assigned either at the species, the genus or the family level.")
-
-        if cfg["get_children"]:
-            seqID_taxid_level_repr_genome, repr_genomes_present, children_df = map_seq_to_ncbi_tax_level_and_id(
-                ext,
-                TAX_COL,
-                SEQ_COL,
-                cfg["taxonomy"],
-                cfg["delimiter"],
-                cfg["get_children"]
-            )
-
-        else:
-            seqID_taxid_level_repr_genome, repr_genomes_present = map_seq_to_ncbi_tax_level_and_id(
-                ext,
-                TAX_COL,
-                SEQ_COL,
-                cfg["taxonomy"],
-                cfg["delimiter"],
-                cfg["get_children"]
-            )
-            children_df = pd.DataFrame()
-
+    if cfg["get_children"]:
+        seqID_taxid_level_repr_genome, repr_genomes_present, children_df = map_seq_to_ncbi_tax_level_and_id(
+            ext,
+            TAX_COL,
+            SEQ_COL,
+            cfg["taxonomy"],
+            cfg["delimiter"],
+            cfg["get_children"]
+        )
         children_genomes = set(children_df.explode("gtdb_gen_repr")["gtdb_gen_repr"].to_list())
 
-        # [ATTENTION!] seqID not exploded!
-        seqID_taxid_level_repr_genome["taxonomy"] = ext["taxonomy"]
-        exploded_seqID_taxid_level_repr_genome = seqID_taxid_level_repr_genome.explode("gtdb_gen_repr")
+    else:
+        seqID_taxid_level_repr_genome, repr_genomes_present = map_seq_to_ncbi_tax_level_and_id(
+            ext,
+            TAX_COL,
+            SEQ_COL,
+            cfg["taxonomy"],
+            cfg["delimiter"],
+            cfg["get_children"]
+        )
 
-        seqID_taxid_level_repr_genome.to_csv(
-            os.path.join(
-                out_dir,
-                "taxa_with_ndbiId_and_repr_gtdbIds.csv"),
-            "\t")
+    # [ATTENTION!] seqID not exploded!
+    seqID_taxid_level_repr_genome["taxonomy"] = ext["taxonomy"]
+    exploded_seqID_taxid_level_repr_genome = seqID_taxid_level_repr_genome.explode("gtdb_gen_repr")
+
+    seqID_taxid_level_repr_genome.to_csv(
+        os.path.join(
+            out_dir,
+            "taxa_with_ndbiId_and_repr_gtdbIds.csv"),
+        "\t")
 
     # Get co-occurrence network
     if not edge_list_file:
@@ -154,23 +154,49 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
             "julia", FLASHWEAVE_SCRIPT, flashweave_output_dir, flashweave_tmp_input, str(cfg["sensitive"]), str(cfg["heterogeneous"]), metadata_file
         ]
         flashweave_command = " ".join(flashweave_params)
+
         logging.info("Run FlashWeave")
-        os.system(flashweave_command)
+        if os.system(flashweave_command) != 0:
+            logging.error(""" FlashWeave failed. Check Julia and FlashWeave dependencies and the format of its input file. """)
+            return 1
 
         # Taxa pairs as NCBI Tax ids
         logging.info("Map your edge list to NCBI Tax ids and keep only associations that both correspond to a such.")
-        edge_list = edge_list_of_ncbi_ids(flashweave_edgelist)
+        try:
+            edge_list = edge_list_of_ncbi_ids(flashweave_edgelist)
+        except:
+            logging.error("No edges in the cooccurrence network produced. Please check your abundance table and the FlashWeave settings used.")
+            return 1
+    else:
+        logging.info("STEP: Load user's co-occurrence network".center(80, "*"))
+        try:
+            edge_list = edge_list_of_ncbi_ids(edge_list_file)
+        except:
+            logging.error("The network file provided is either empty or of bad format and could not be loaded.")
+            return 1
 
-        """Example:
-        [{'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
-         'node_b': 'microbetag_21', 'ncbi_tax_id_node_b': 136703, 'gtdb_gen_repr_node_b': nan, 'ncbi_tax_level_node_b': 'species'},.. {..}] """
-        edgelist_as_a_list_of_dicts = edge_list.applymap(lambda x: str(x) if pd.notna(x) else 'null').to_dict(orient="records")
 
-        # Save the edgelist returned from flashweave to a file
-        edge_list.to_csv("edgelist.csv", sep="\t")
+        all_seqids_on_edgelist = list(edge_list["node_a"].values) + list(edge_list["node_b"].values)
+        all_seqids_on_edgelist = set(all_seqids_on_edgelist)
+        all_seqids_in_abundance_table = set(seqID_taxid_level_repr_genome["microbetag_id"].values)
+        if all_seqids_on_edgelist.issubset(all_seqids_in_abundance_table):
+            logging.info("all network node ids are part of the abundance table")
+        else:
+            # [NOTE] Consider exiting 
+            logging.warn("Not all sequence identifiers in the co-occurrence network provided are also menbers of abundance table!") 
+            return 0
 
-        # Make a set with all unique sequence ids that are nodes in the network
-        all_nodes_ids = set(pd.concat([edge_list["node_a"], edge_list["node_b"]]).tolist())
+
+    """Example:
+    [{'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
+        'node_b': 'microbetag_21', 'ncbi_tax_id_node_b': 136703, 'gtdb_gen_repr_node_b': nan, 'ncbi_tax_level_node_b': 'species'},.. {..}] """
+    edgelist_as_a_list_of_dicts = edge_list.applymap(lambda x: str(x) if pd.notna(x) else 'null').to_dict(orient="records")
+
+    # Save the edgelist returned from flashweave to a file
+    edge_list.to_csv("edgelist.csv", sep="\t")
+
+    # Make a set with all unique sequence ids that are nodes in the network
+    all_nodes_ids = set(pd.concat([edge_list["node_a"], edge_list["node_b"]]).tolist())
 
     # Phen annotations
     if cfg["phenDB"]:
@@ -187,21 +213,25 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         for gtdb_id in set(repr_genomes_present):
             phen_traits_dict = get_phendb_traits(gtdb_id)
             if phen_traits_dict != 0:
-                if gtdb_id not in children_genomes:
+                done = False
+                if cfg["get_children"]:
+                    if gtdb_id in children_genomes:
+                        # [NOTE] Remember that the actual NCBI Tax Id of the genome in this case, is the child, not the one written in the file.
+                        ncbiId = children_df.explode("gtdb_gen_repr")[
+                            children_df.explode("gtdb_gen_repr")["gtdb_gen_repr"] == gtdb_id]["parent_ncbi_tax_id"].to_list()[0]
+                        done = True
+                if not done:
                     ncbiId = exploded_seqID_taxid_level_repr_genome.loc[
                         exploded_seqID_taxid_level_repr_genome["gtdb_gen_repr"] == gtdb_id, "ncbi_tax_id"
                     ].to_list()[0]
-                else:
-                    # [NOTE] Remember that the actual NCBI Tax Id of the genome in this case, is the child, not the one written in the file.
-                    ncbiId = children_df.explode("gtdb_gen_repr")[
-                        children_df.explode("gtdb_gen_repr")["gtdb_gen_repr"] == gtdb_id]["parent_ncbi_tax_id"].to_list()[0]
+
                 ncbiId = str(ncbiId)
                 q = list(phen_traits_dict.values())
                 q.insert(1, ncbiId)
                 q = [str(x) for x in q]
                 traits.append(q)
             else:
-                print("Genome:", gtdb_id, "is not present in the phenDB version of microbetag.")
+                logging.info(" ".join(["Genome:", gtdb_id, "is not present in the phenDB version of microbetag."]))
         # Save phen traits as a .tsv file
         if not os.path.exists(phen_output_dir):
             os.mkdir(phen_output_dir)
@@ -235,11 +265,14 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
         # Run FAPROTAX
         # In the sub tables files, in column 1 we have the taxonomy and in column 2 the OTU ID.
-        if os.system(faprotax_command) != 0:
+        process = subprocess.Popen(faprotax_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) 
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            logging.error(stderr.decode())
             logging.error("""Something went wrong when running the FAPROTAX analysis!
                             Check how you describe your input table.
                             Also, please make sure you have set the column_names_are_in parameter properly.""")
-            sys.exit(0)
+            return 1
 
     # Get species/strain to species/strain associations
     if cfg["pathway_complement"] or cfg["seed_scores"]:
@@ -251,19 +284,22 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         species_level_associations: set of sets of NCBI ids
         genomes_of_species_nodes: a dictionary with the genomes assigned (value; type: list) to each ncbi id (key)
         """
-        species_level_associations, seqIds_of_species_level_associations, genomes_of_species_nodes, genomes_of_children = export_species_level_associations(
-            edgelist_as_a_list_of_dicts,
-            seqID_taxid_level_repr_genome,
-            children_df
-        )
+        if cfg["get_children"]:
+            species_level_associations, seqIds_of_species_level_associations, genomes_of_species_nodes, genomes_of_children = export_species_level_associations(
+                edgelist_as_a_list_of_dicts,
+                seqID_taxid_level_repr_genome,
+                children_df
+            )
+        else:
+            species_level_associations, seqIds_of_species_level_associations, genomes_of_species_nodes, genomes_of_children = export_species_level_associations(
+                edgelist_as_a_list_of_dicts,
+                seqID_taxid_level_repr_genome,
+            )
 
     # Pathway complementarity
     if cfg["pathway_complement"]:
 
         logging.info("STEP: Pathway complementarity".center(80, "*"))
-
-        if edge_list_file:
-            edge_list = edge_list_file.copy()
 
         ncbi_id_pairs_with_complements = get_complements_of_list_of_pair_of_ncbiIds(species_level_associations, genomes_of_species_nodes)
 
@@ -272,8 +308,8 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
         with open(os.path.join(pathway_complementarity_dir, "complements.json"), "w") as f:
             ncbi_id_pairs_with_complements = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_complements.items()}
-            ncbi_id_pairs_with_complements_str = convert_to_json_serializable(ncbi_id_pairs_with_complements)  # convert_tuples_to_strings
-            json.dump(ncbi_id_pairs_with_complements_str, f)
+            ncbi_id_pairs_with_complements_str = convert_to_json_serializable(ncbi_id_pairs_with_complements)
+            json.dump(convert_tuples_to_strings(ncbi_id_pairs_with_complements_str), f)
 
         logging.info("Pathway complementarity has been completed successfully.".center(80, "*"))
 
@@ -290,9 +326,10 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         ncbi_id_pairs_with_seed_scores = remove_query(ncbi_id_pairs_with_seed_scores)
         ncbi_id_pairs_with_seed_scores = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_seed_scores.items()}
         ncbi_id_pairs_with_seed_scores_str = convert_to_json_serializable(ncbi_id_pairs_with_seed_scores)  # convert_tuples_to_strings
+        ncbi_id_pairs_witt_seed_scores_js = convert_tuples_to_strings(ncbi_id_pairs_with_seed_scores_str)
 
         with open(os.path.join(seed_scores_dir, "seed_scores.json"), "w") as f:
-            json.dump(ncbi_id_pairs_with_seed_scores_str, f)
+            json.dump(ncbi_id_pairs_witt_seed_scores_js, f)
 
         logging.info("Seed scores have been assigned successfully.". center(80, "*"))
 
@@ -324,7 +361,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         # Run manta
         if os.system(manta_command) != 0:
             logging.error("""manta failed. Check network format""")
-            sys.exit(0)
+            return 1
 
     # Build output; an annotated graph
     logging.info("""STEP: Constructing the annotated network""".center(80, "*"))
