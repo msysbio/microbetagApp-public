@@ -28,6 +28,11 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts, seqID_taxid_l
     pairs_of_seqId_of_interest = set()
     list_of_non_usefules_ids = ["77133", "91750"]
     for pair in edgelist_as_a_list_of_dicts:
+        # print(pair)
+        # print(pair["node_b"])
+        # print(
+        #     seqID_taxid_level_repr_genome[seqID_taxid_level_repr_genome["seqId"] == pair["node_b"]]
+        # )
         # taxon_a and taxon_b variables are int type; in case there is a <NA> value then it is a pandas missing NAType
         taxon_a = seqID_taxid_level_repr_genome[seqID_taxid_level_repr_genome["seqId"] == pair["node_a"]]["ncbi_tax_id"].values.item()
         taxon_b = seqID_taxid_level_repr_genome[seqID_taxid_level_repr_genome["seqId"] == pair["node_b"]]["ncbi_tax_id"].values.item()
@@ -81,6 +86,24 @@ def count_comment_lines(my_abundance_table, my_taxonomy_column):
             else:
                 break
     return skip_rows
+
+
+def aggregate_genomes(genomes):
+    """
+    Aggregate rows of a df with the same seqId and different gtdb_repr_gen so 
+    you have a single row with a list of the genomes found
+    """
+    unique_genomes = set()
+    for genome_list in genomes:
+        unique_genomes.update(genome_list)
+    return list(unique_genomes)
+
+
+def replace_empty_list(value):
+    """
+    Replace a df's cell that is an empty list with np.nan 
+    """
+    return np.nan if isinstance(value, list) and not value else value
 
 
 def map_seq_to_ncbi_tax_level_and_id(abundance_table, my_taxonomy_column, seqId, taxonomy_scheme, tax_delim, get_chiildren):
@@ -137,12 +160,14 @@ def map_seq_to_ncbi_tax_level_and_id(abundance_table, my_taxonomy_column, seqId,
     Get NCBI ids at SPECIES level - Use proper ref file
     NOTE: If the taxon_to_ncbiId file has more than one ncbi ids or genomes for a taxonomy is going to be an issue 
     
-    Unique taxonomies
-    ------------------
+    Unique taxonomies: a seqId will hit exactly one genome
+    ------------------------------------------------------
     gc_accession_16s_gtdb_ncbid.tsv
     gtdbSpecies2ncbiId2accession.tsv
-    fuzzywazzy output
 
+
+    fuzzywazzy output
+    Silva (gtdb_silvaSpecies2ncbi2accession) > 
     
     """
     if taxonomy_scheme == "GTDB":
@@ -164,14 +189,23 @@ def map_seq_to_ncbi_tax_level_and_id(abundance_table, my_taxonomy_column, seqId,
         gtdb_accession_ids.columns = ["refSpecies", "species_ncbi_id", "gtdb_gen_repr"]
         gtdb_accession_ids["refSpecies"].str.strip()
 
-        # The species_ncbi_id column is currently of np.float type
-        # [BUG] This leads to error as the result_df and the splitted_taxonomies have diferent shapes
-
         splitted_taxonomies =  pd.merge(splitted_taxonomies, gtdb_accession_ids, left_on='extendedSpecies', right_on='refSpecies', how='left')
-
         repr_genomes_present = [ c for c in splitted_taxonomies["gtdb_gen_repr"].to_list() if isinstance(c, str) ]
         
-        splitted_taxonomies['gtdb_gen_repr'] = splitted_taxonomies['gtdb_gen_repr'].apply(lambda x: [x] if pd.notna(x) else np.nan)
+        if taxonomy_scheme != "Silva":
+            splitted_taxonomies['gtdb_gen_repr'] = splitted_taxonomies['gtdb_gen_repr'].apply(lambda x: [x] if pd.notna(x) else np.nan)
+
+        else:
+            # Remove cases where for a single seqId there are more than 2 ncbi taxids in case both hit the same genome
+            splitted_taxonomies['gtdb_gen_repr'] = splitted_taxonomies['gtdb_gen_repr'].apply(lambda x: tuple([x]) if isinstance(x, str) else tuple())
+
+            # Group by 'seqId' and aggregate 'gtdb_gen_repr' with custom function
+            splitted_taxonomies = splitted_taxonomies.groupby('seqId').agg({
+                **{col: 'first' for col in splitted_taxonomies.columns if col not in ['seqId', 'gtdb_gen_repr']},
+                'gtdb_gen_repr': aggregate_genomes
+            }).reset_index()
+
+            splitted_taxonomies = splitted_taxonomies.map(replace_empty_list)
 
         gtdb_genomes_on = True
 
@@ -511,7 +545,7 @@ def ensure_flashweave_format(my_abundance_table, my_taxonomy_column, seqId, outd
     return my_abundance_table
 
 
-def edge_list_of_ncbi_ids(edgelist):  # abundance_table_with_ncbi_ids
+def edge_list_of_ncbi_ids(edgelist, metadata_file=None):  # abundance_table_with_ncbi_ids
     """
     Read an edge list and build a dataframe with the corresponding ncbi ids for each pair
     if and only if, both OTUs have been mapped to a NCBI tax id
@@ -522,7 +556,14 @@ def edge_list_of_ncbi_ids(edgelist):  # abundance_table_with_ncbi_ids
     """
     pd_edgelist = pd.read_csv(edgelist, sep="\t", skiprows=2, header=None)
     pd_edgelist.columns = ["node_a", "node_b", "score"]
+
+    if metadata_file:
+        elements_to_exclude = pd.read_csv(metadata_file, sep="\t", header=None, index_col=0).index.to_list() 
+        mask =pd_edgelist.isin(elements_to_exclude).any(axis=1)
+        pd_edgelist = pd_edgelist[~mask]
+
     pd_edgelist["pair-of-taxa"] = pd_edgelist['node_a'].astype(str) + ":" + pd_edgelist["node_b"]
+
     # # The pd.explode() function transforms the arrays into separate rows
     # abundance_table_with_ncbi_ids_exploded = abundance_table_with_ncbi_ids.explode("gtdb_gen_repr")
     # associated_pairs_node_a = pd.merge(
@@ -671,10 +712,13 @@ def remove_query(dictionary):
 
 
 def read_cyjson(filename, direction=False):
-    """Function based on the corresponding of the manta library: https://github.com/ramellose/manta/blob/master/manta/cyjson.py
-    Small utility function for reading Cytoscape json files
-    generated with CoNet.
+    """
+    Function based on the corresponding of the manta library: 
+    https://github.com/ramellose/manta/blob/master/manta/cyjson.py
+    
+    Small utility function for reading Cytoscape json files generated with CoNet.
     In our case, it also gets the layout and adds it as part of the node data.
+
     Parameters
     ----------
     :param filename: Filepath to location of cyjs file.
@@ -822,7 +866,7 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
                 for index, compl in enumerate(compls):
                     try:
                         triplet = descrps[descrps["moduleId"] == compl[0][0]].values.tolist()[0]
-                        pairs_cats.add(triplet([2]))
+                        pairs_cats.add(triplet[2])
                         extend = triplet + compl[0][1:]
                         complements_dict[n_pair][genomes][index] = [extend]
                     except:

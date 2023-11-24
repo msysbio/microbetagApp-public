@@ -85,11 +85,13 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
     if metadata_file is None:
         metadata_file = "false"
+        metadata = "false"
+    else:
+        metadata = "true"
 
     # Abundance table preprocess
     if abundance_table_file is None:
         logging.error(""" microbetag requires an abundance table. """)
-
 
     """
     Parse abundance table to match taxa to microbetag genomes
@@ -151,7 +153,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         logging.info("STEP: Build co-occurrence network".center(80, "*"))
 
         flashweave_params = [
-            "julia", FLASHWEAVE_SCRIPT, flashweave_output_dir, flashweave_tmp_input, str(cfg["sensitive"]), str(cfg["heterogeneous"]), metadata_file
+            "julia", FLASHWEAVE_SCRIPT, flashweave_output_dir, flashweave_tmp_input, str(cfg["sensitive"]), str(cfg["heterogeneous"]), metadata, metadata_file
         ]
         flashweave_command = " ".join(flashweave_params)
 
@@ -163,7 +165,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         # Taxa pairs as NCBI Tax ids
         logging.info("Map your edge list to NCBI Tax ids and keep only associations that both correspond to a such.")
         try:
-            edge_list = edge_list_of_ncbi_ids(flashweave_edgelist)
+            edge_list = edge_list_of_ncbi_ids(flashweave_edgelist, metadata_file=metadata_file)
         except:
             logging.error("No edges in the cooccurrence network produced. Please check your abundance table and the FlashWeave settings used.")
             return 1
@@ -190,7 +192,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
     """Example:
     [{'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
         'node_b': 'microbetag_21', 'ncbi_tax_id_node_b': 136703, 'gtdb_gen_repr_node_b': nan, 'ncbi_tax_level_node_b': 'species'},.. {..}] """
-    edgelist_as_a_list_of_dicts = edge_list.applymap(lambda x: str(x) if pd.notna(x) else 'null').to_dict(orient="records")
+    edgelist_as_a_list_of_dicts = edge_list.map(lambda x: str(x) if pd.notna(x) else 'null').to_dict(orient="records")
 
     # Save the edgelist returned from flashweave to a file
     edge_list.to_csv("edgelist.csv", sep="\t")
@@ -336,6 +338,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
     # Run manta
     if cfg["manta"]:
 
+        import time
         logging.info("""STEP: network clustering using manta and the abundance table""".center(80, "*"))
 
         # Build base network; no annotations added
@@ -359,9 +362,16 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         manta_command = " ".join(manta_params)
 
         # Run manta
+        m1 = time.time()
         if os.system(manta_command) != 0:
-            logging.error("""manta failed. Check network format""")
-            return 1
+            logging.error("""manta failed. Check the network format, the parameters set and/or number of edges on the network. 
+                          The cfg value will be changed so the buld_cx_annotated_graph function will not fail.""")
+            cfg["manta"] = False
+        else:
+            logging.info("""manta ran fine.""")
+        m2 = time.time()
+        time = " ".join(["Network clustering with manta took:", str(m2 - m1), "sec"])
+        logging.info(time)
 
     # Build output; an annotated graph
     logging.info("""STEP: Constructing the annotated network""".center(80, "*"))
