@@ -23,15 +23,17 @@ FLASHWEAVE_OUTPUT_DIR = ARGS[1]
 data_path = ARGS[2]
 sensitive = parse(Bool, ARGS[3])
 heterogeneous = parse(Bool, ARGS[4])
-meta_data_path = parse(Bool, ARGS[5])
+metadata = parse(Bool, ARGS[5])
 
-if meta_data_path
-   metadata     = ARGS[5]
+if metadata
+
+   meta_data_path     = ARGS[6]
    netw_results = learn_network(
                                  data_path, 
                                  meta_data_path, 
                                  sensitive = sensitive, 
-                                 heterogeneous = heterogeneous
+                                 heterogeneous = heterogeneous,
+                                 transposed = true
                               )
 
 else

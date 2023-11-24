@@ -1,4 +1,4 @@
-seqID	sample_1	sample_2	sample_3	sample_4	sample_5	sample_6	sample_7	sample_8	sample_9	taxonomy
+seqId	sample_1	sample_2	sample_3	sample_4	sample_5	sample_6	sample_7	sample_8	sample_9	taxonomy
 ASV_10	0	8	0	0	0	9	8	0	0	Root;Bacteria;Proteobacteria;Alphaproteobacteria;Rickettsiales;Rickettsiaceae;Rickettsia;unclassified_Rickettsia
 ASV_29	8	0	0	0	0	0	0	0	0	Root;Bacteria;Bacteroidota;Bacteroidia;Cytophagales;Spirosomaceae;Spirosoma;Spirosoma_linguale
 ASV_30	0	0	0	0	0	9	0	0	0	Root;Bacteria;Proteobacteria;Gammaproteobacteria;Enterobacterales;Vibrionaceae;Vibrio;Vibrio_sp000169995
