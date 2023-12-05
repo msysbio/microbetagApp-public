@@ -62,7 +62,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
     # Fix arguments
     default_args = {
-        "get_children": True,
+        "get_children": False,
         "sensitive": "true",
         "heterogeneous": "false",
         "phenDB": True,
@@ -165,18 +165,20 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         # Taxa pairs as NCBI Tax ids
         logging.info("Map your edge list to NCBI Tax ids and keep only associations that both correspond to a such.")
         try:
-            edge_list = edge_list_of_ncbi_ids(flashweave_edgelist, metadata_file=metadata_file)
-        except:
+            if metadata == "true":
+                edge_list = edge_list_of_ncbi_ids(flashweave_edgelist, metadata_file=metadata_file)
+            else:
+                edge_list = edge_list_of_ncbi_ids(flashweave_edgelist)
+        except ValueError:
             logging.error("No edges in the cooccurrence network produced. Please check your abundance table and the FlashWeave settings used.")
             return 1
     else:
         logging.info("STEP: Load user's co-occurrence network".center(80, "*"))
         try:
             edge_list = edge_list_of_ncbi_ids(edge_list_file)
-        except:
+        except ValueError:
             logging.error("The network file provided is either empty or of bad format and could not be loaded.")
             return 1
-
 
         all_seqids_on_edgelist = list(edge_list["node_a"].values) + list(edge_list["node_b"].values)
         all_seqids_on_edgelist = set(all_seqids_on_edgelist)
@@ -184,10 +186,9 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         if all_seqids_on_edgelist.issubset(all_seqids_in_abundance_table):
             logging.info("all network node ids are part of the abundance table")
         else:
-            # [NOTE] Consider exiting 
-            logging.warn("Not all sequence identifiers in the co-occurrence network provided are also menbers of abundance table!") 
+            # [NOTE] Consider exiting
+            logging.warn("Not all sequence identifiers in the co-occurrence network provided are also menbers of abundance table!")
             return 0
-
 
     """Example:
     [{'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
@@ -267,7 +268,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
         # Run FAPROTAX
         # In the sub tables files, in column 1 we have the taxonomy and in column 2 the OTU ID.
-        process = subprocess.Popen(faprotax_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) 
+        process = subprocess.Popen(faprotax_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
         if process.returncode != 0:
             logging.error(stderr.decode())
@@ -364,7 +365,7 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         # Run manta
         m1 = time.time()
         if os.system(manta_command) != 0:
-            logging.error("""manta failed. Check the network format, the parameters set and/or number of edges on the network. 
+            logging.error("""manta failed. Check the network format, the parameters set and/or number of edges on the network.
                           The cfg value will be changed so the buld_cx_annotated_graph function will not fail.""")
             cfg["manta"] = False
         else:

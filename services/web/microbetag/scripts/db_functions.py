@@ -7,6 +7,7 @@ from mysql.connector import pooling
 from .variables import *
 import logging
 
+
 # General
 def init_connection_pool():
     """
@@ -170,9 +171,9 @@ def get_complements_for_pair_of_ncbiIds(beneficiarys_ndbi_id=1281578, donors_ncb
     return complements
 
 
-def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '729')}, 
-                                               relative_genomes={'553174': {'GCF_000144405.1'}, 
-                                                                 '729': {'GCF_007666205.1', 'GCF_000154205.1', 'GCF_001275345.1', 'GCF_902810435.1', 
+def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '729')},
+                                               relative_genomes={'553174': {'GCF_000144405.1'},
+                                                                 '729': {'GCF_007666205.1', 'GCF_000154205.1', 'GCF_001275345.1', 'GCF_902810435.1',
                                                                          'GCF_000174815.1', 'GCF_002550035.1', 'GCF_003287405.1'}}):
     """
     Gets a set of dictionaries as input that describes the edges of a network and returns the complementarities
@@ -186,7 +187,7 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '72
     relative genmes: {'553174': {'GCF_000144405.1'},
                     '729': {'GCF_007666205.1', 'GCF_000154205.1', 'GCF_001275345.1', 'GCF_902810435.1',...,'GCF_003287405.1' }}
     """
-    import time 
+    import time
     s2 = time.time()
 
     # Init a pool
@@ -249,14 +250,14 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '72
                 unique_compl_ids.add(complID)
 
     """
-    NOTE: We make a list of the ids so it is ordered. Then, the ORDER BY FIELD ensures the mysql query results is also ordered 
+    NOTE: We make a list of the ids so it is ordered. Then, the ORDER BY FIELD ensures the mysql query results is also ordered
     Finally, we make a dicionary (all_compl_ids2coloured_compls) withd compl id as key and its coloured complement as value
-    """    
+    """
     unique_compl_ids = list(unique_compl_ids)
     print("Unique compl ids: ", str(len(unique_compl_ids)))
-    query = """SELECT KoModuleId, complement, pathway FROM uniqueComplements 
+    query = """SELECT KoModuleId, complement, pathway FROM uniqueComplements
             WHERE complementId IN ('{}') ORDER BY FIELD(complementId, '{}');""".format(
-                "','".join(unique_compl_ids), "','".join(unique_compl_ids))
+            "','".join(unique_compl_ids), "','".join(unique_compl_ids))
 
     logging.info("Run queries to map the compl ids to the complete 4-columns complements")
     query_result = execute_in_a_pool(cursor, query)
@@ -270,7 +271,7 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '72
 
     logging.info("Make pairs_complements dict")
     """
-    NOTE Currently, this is the most time-consuming step; find alternative 
+    NOTE Currently, this is the most time-consuming step; find alternative
     """
     pairs_complements = {}
     for ncbi_pair, genomes_pair_complement in pairs_to_compl_ids.items():
@@ -373,7 +374,7 @@ def get_seed_scores_for_list_of_pair_of_ncbiIds(pairs_of_interest, relative_geno
 
                 if ncbi_b_genome not in patricIds:
                     continue
-                
+
                 if patricIds[ncbi_a_genome] is None or patricIds[ncbi_b_genome] is None:
                     continue
                 # [NOTE] We do not use query_from_B_to_A as all associations are double (both A->B and B->A) in the pairs_of_interest

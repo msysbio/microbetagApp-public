@@ -78,6 +78,7 @@ def genomes_complements(beneficiary_genome="GCA_011364525.1", donor_genome="GCA_
     # return d
     return jsonify(d)
 
+
 @app.route('/complements/<string:beneficiary_ncbi_tax_id>/<string:donor_ncbi_tax_id>', methods=['GET'])
 def ncbi_ids_complements(beneficiary_ncbi_tax_id="2184738", donor_ncbi_tax_id="86180"):
     q = db_functions.get_complements_for_pair_of_ncbiIds(beneficiary_ncbi_tax_id, donor_ncbi_tax_id)
@@ -147,8 +148,9 @@ def upload_dev():
 
         # CytoApp will provide a list of args while API is better to give a dictionary in terms of user friendliness
         arguments_list = [
-            "input_category", "taxonomy", "delimiter", "get_children", "sensitive", "heterogeneous",
-            "phenDB", "faprotax", "pathway_complement", "seed_scores", "manta"
+            "input_category", "taxonomy", "delimiter",
+            "phenDB", "faprotax", "pathway_complement", "seed_scores",
+            "get_children", "manta", "sensitive", "heterogeneous",
         ]
         if isinstance(json_array["inputParameters"], list):
             args = {}
@@ -169,6 +171,8 @@ def upload_dev():
             metadata_table.to_csv(metadata_table, sep="\t", header=False, index=False)
 
         # run microbetag
+        logging.info(json_array["inputParameters"])
+
         annotated_network = microbetag.main(out_dir, args, abundance_table)
 
         # # Zip file Initialization and you can change the compression type
@@ -191,6 +195,24 @@ def upload_dev():
         # os.remove("microbetag.zip")
 
         return annotated_network
+
+
+@app.route('/upload-abundance-table', methods=['GET', 'POST'])
+def test_output_dev():
+
+    if request.method == 'POST':
+
+        # Generate a unique identifier for the request based on its content; an integer
+        request_id = hash(frozenset(request.form.items()))
+
+        # Check if the request has already been processed recently (within 20 seconds; set in the cache above)
+        if cache.get(request_id):
+            # Return the cached response for the duplicate request
+            response = cache.get(request_id)
+            return jsonify({"status": "success", "data": response})
+
+    d = json.load(open("static/eth_test2.cx", "r"))
+    return d
 
 
 if __name__ == '__main__':
