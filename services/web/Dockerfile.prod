@@ -43,13 +43,12 @@ ENV APP_HOME=/home/app/web
 RUN mkdir $APP_HOME
 
 # install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends netcat vim
+RUN apt-get update && apt-get install -y --no-install-recommends netcat vim wget git
+
 COPY --from=builder /usr/src/app/wheels /wheels
 COPY --from=builder /usr/src/app/requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache /wheels/*
-
-RUN apt-get install -y wget git
 
 # install Julia and FlashWeave
 WORKDIR /opt
