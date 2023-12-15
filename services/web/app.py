@@ -143,6 +143,13 @@ def upload_dev():
         data = json_array["data"]
         data = pd.DataFrame(data)  # pd.read_json(data)
 
+        if data.shape[0] > 1000 and "network" not in json_array:
+            return ValueError("""
+                              Your abundance table consists of more than 1000 sequences. 
+                              Please build a co-occurrence network either using the microbetag_prep Docker image or in any way of your choice
+                              and submit again your job providing it too.
+                              """)
+
         data.iloc[0, 0] = "seqId"
         data.iloc[0, -1] = "taxonomy"
 
