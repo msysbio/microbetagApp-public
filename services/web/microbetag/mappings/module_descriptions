@@ -446,3 +446,4 @@ Drug resistance	M00851	Carbapenem resistance
 Pathogenicity	M00852	Vibrio cholerae pathogenicity signature: toxin coregulated pilus
 Drug resistance	M00705	Multidrug resistance: efflux pump MepA
 Drug resistance	M00700	Multidrug resistance: efflux pump AbcA
+Drug resistance M00642  Multidrug resistance, efflux pump MexJK-OprM
