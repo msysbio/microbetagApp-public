@@ -29,22 +29,23 @@ if metadata
 
    meta_data_path     = ARGS[6]
    netw_results = learn_network(
-                                 data_path, 
-                                 meta_data_path, 
-                                 sensitive = sensitive, 
+                                 data_path,
+                                 meta_data_path,
+                                 sensitive = sensitive,
                                  heterogeneous = heterogeneous,
-                                 transposed = true
+                                 transposed = true,
+				 n_obs_min = 3
                               )
 
 else
    
    netw_results = learn_network(
                                  data_path,
-                                 n_obs_min = 5,  
-                                 sensitive = sensitive, 
+                                 n_obs_min = 5,
+                                 sensitive = sensitive,
                                  heterogeneous = heterogeneous,
                                  max_k = 1,
-                                 transposed = true
+                                 transposed = true,
                               )
 
 end
