@@ -3,7 +3,6 @@ Aim:
     Gets an edgelist as input along with a df mentioning the NCBI Tax ids and the GTDB ids of the corresponding taxa
     and based on the annotation types asked, it build a cx-format graph that is going to be the final return object of microbetag
 
-
 Author: 
     Haris Zafeiropoulos
 """
@@ -142,6 +141,15 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
         cyTableColumns.append({"applies_to": "edge_table", "n": "::".join(["seed", "competition-std"]), "d": "double"})
         cyTableColumns.append({"applies_to": "edge_table", "n": "::".join(["seed", "cooperation"]), "d": "double"})
         cyTableColumns.append({"applies_to": "edge_table", "n": "::".join(["seed", "cooperation-std"]), "d": "double"})
+        for seedFindings in seed_scores_dict.values():
+            if len(seedFindings) > 0:
+                for scenario in seedFindings.values():
+                    cyTableColumns.append(
+                        {"applies_to": "edge_table", 
+                            "n": "".join(["seedCompl::", scenario["genome-A"], ":", scenario["genome-B"]]), 
+                            "d": "list_of_string"
+                        }
+                    )
 
     """MANTA CLUSTERS"""
     if cfg["manta"]:
@@ -265,12 +273,16 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
     for case in edgelist_as_a_list_of_dicts:
         id_a = seq_to_nodeID[case["node_a"]]
         id_b = seq_to_nodeID[case["node_b"]]
-        edge = {"@id": edge_counter, "s": id_a, "t": id_b, "i": "cooccurs"}
+        edge = {"@id": edge_counter, "s": id_a, "t": id_b, "i": "cooccurrence/depletion"}
         edges["edges"].append(edge)
 
         edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "weight::weight", "v": str(case["score"]), "d": "double"})
-        edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "shared name", "v": " ".join([case["node_a"], "(cooccurss with)", case["node_b"]]), "d": "string"})
-        edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "interaction type", "v": "cooccurs with", "d": "string"})
+        if float(case["score"]) > 0:
+            edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "shared name", "v": " ".join([case["node_a"], "(cooccurss with)", case["node_b"]]), "d": "string"})
+            edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "interaction type", "v": "cooccurrence", "d": "string"})
+        else:
+            edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "shared name", "v": " ".join([case["node_a"], "(depletes)", case["node_b"]]), "d": "string"})
+            edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "interaction type", "v": "depletion", "d": "string"})
 
         ncbi_a = seq_map[seq_map["seqId"] == case["node_a"]]["ncbi_tax_id"].item()
         ncbi_b = seq_map[seq_map["seqId"] == case["node_b"]]["ncbi_tax_id"].item()
@@ -322,6 +334,12 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
                     edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "::".join(["seed", "cooperation"]), "v": str(np.mean(coop)), "d": "double"})
                     edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "::".join(["seed", "cooperation-std"]), "v": str(np.std(coop)), "d": "double"})
 
+                    for scenario in seed_scores_dict[ncbi_pair_as_tuple_a_b].values():
+                        if "complements" in scenario.keys():
+                            attr = "".join(["seedCompl::", scenario["genome-A"], ":", scenario["genome-B"]])
+                            merged_compl = ["^".join(gcompl) for gcompl in scenario["complements"]]
+                            edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": attr, "v": merged_compl, "d": "list_of_string"})
+
             if check:
                 edge_counter += 1
                 check = False
@@ -359,6 +377,13 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
                     edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "::".join(["seed", "competition-std"]), "v": str(np.std(comp)), "d": "double"})
                     edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "::".join(["seed", "cooperation"]), "v": str(np.mean(coop)), "d": "double"})
                     edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "::".join(["seed", "cooperation-std"]), "v": str(np.std(coop)), "d": "double"})
+
+                    for scenario in seed_scores_dict[ncbi_pair_as_tuple_b_a].values():
+                        if "complements" in scenario.keys():
+                            attr = "".join(["seedCompl::", scenario["genome-B"], ":", scenario["genome-A"]])
+                            # NOTE: in case a map has no description or for any reason we have a nan value from the dfs this will fail
+                            merged_compl = ["^".join(gcompl) for gcompl in scenario["complements"]]
+                            edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": attr, "v": merged_compl, "d": "list_of_string"})
 
             if check:
                 edge_counter += 1

@@ -1,10 +1,24 @@
-import sys
+"""
+Aim:
+    Functions to support the API to the MySQL microbetagDB.
+
+Author:
+    Haris Zafeiropoulos
+
+Licensed under GNU LGPL.3, see LICENCE file
+"""
+
+# import sys
 import os
-import decimal
+# import decimal
+import pickle
 import pandas as pd
 import mysql.connector
 from mysql.connector import pooling
-from .variables import *
+try:
+    from .variables import *
+except ImportError:
+    from variables import *
 import logging
 
 
@@ -85,6 +99,42 @@ def execute(phrase):
     cnx.commit()
     cnx.close()
     return rows
+
+
+def gc_unify(gc_list):
+    """
+    Removes duplicates of a genome that has entries both as GCA and GCF in the db.
+    """
+    return list(set([x.replace("GCA", "GCF") for x in gc_list]))
+
+
+def alt_genome_prefix(gc):
+    """
+    Switches GCA prefic of a genome accession id to GCF and vice-versa.
+    """
+    if gc.startswith("GCA_"):
+        gc_alt = gc.replace("GCA_", "GCF_")
+    elif gc.startswith("GCF_"):
+        gc_alt = gc.replace("GCF_", "GCA_")
+    else:
+        return 0
+    return gc_alt
+
+
+def scores_to_dict(list_of_tuples):
+    """
+    [NOTE]:deprecated
+    """
+    tmp = {}
+    counter = 0
+    for case in list_of_tuples:
+        if isinstance(case, tuple):
+            tmp[counter] = {}
+            tmp[counter]["genome_A"] = case[0]
+            tmp[counter]["genome_B"] = case[1]
+            tmp[counter]["competition"] = case[2]
+            tmp[counter]["cooperatiom"] = case[3]
+    return tmp
 
 
 # Mapping
@@ -199,7 +249,6 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '72
     logging.info("============  Build queries  =============== ")
     print("Number of pairs of interest:", str(len(pairs_of_interest)))
     print("Number of relative genomes:", str(len(relative_genomes)))
-
     complements_ids_queries = {}
     unique_queries = set()
     for ncbi_pair in list(pairs_of_interest):
@@ -226,7 +275,7 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '72
             complements_ids_list = query_result[0][0].split(",")
             unique_queries2comples[query] = complements_ids_list
 
-    logging.info("map complIds retrieved to their corresponding edges")
+    logging.info("==== Map complIds retrieved to their corresponding edges ====")
     for ncbi_pair, genomes_pair_query in complements_ids_queries.items():
         for genome_pair, query in genomes_pair_query.items():
             if query not in unique_queries2comples:
@@ -238,23 +287,20 @@ def get_complements_of_list_of_pair_of_ncbiIds(pairs_of_interest={('553174', '72
             pairs_to_compl_ids[ncbi_pair][genome_pair] = unique_queries2comples[query]
 
     # Queries to map unique complements ids to their extended. human readable version
-    logging.info("Make a set with the unique complIds")
+    logging.info("==== Make a set with the unique complIds =====")
     cnx_pool = init_connection_pool()
     my_connection = cnx_pool.get_connection()
     cursor = my_connection.cursor()
-
     unique_compl_ids = set()
     for ncbi_pair, genome_pairs in pairs_to_compl_ids.items():
         for genome_pair, compl_list in genome_pairs.items():
             for complID in compl_list:
                 unique_compl_ids.add(complID)
-
     """
     NOTE: We make a list of the ids so it is ordered. Then, the ORDER BY FIELD ensures the mysql query results is also ordered
     Finally, we make a dicionary (all_compl_ids2coloured_compls) withd compl id as key and its coloured complement as value
     """
     unique_compl_ids = list(unique_compl_ids)
-    print("Unique compl ids: ", str(len(unique_compl_ids)))
     query = """SELECT KoModuleId, complement, pathway FROM uniqueComplements
             WHERE complementId IN ('{}') ORDER BY FIELD(complementId, '{}');""".format(
             "','".join(unique_compl_ids), "','".join(unique_compl_ids))
@@ -349,14 +395,12 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
 
 
 # Seed scores related
-def get_seed_scores_for_list_of_pair_of_ncbiIds(pairs_of_interest, relative_genomes):
+def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_interest, relative_genomes, patricIds):
     """
+    Get seed scores and seed complements for all pairs of NCBI ids found correlated in the network.
     """
     # Build the queries
-    seed_scores_queries = {}
-    # Get all PATRIC ids corresponding to the relative_genomes
-    flat_list = [item for sublist in list(relative_genomes.values()) for item in sublist]
-    patricIds = get_patric_id_of_gc_accession_list(flat_list)
+    seed_queries = {}
 
     for pair in list(pairs_of_interest):
         ncbi_a = pair[0]
@@ -377,47 +421,70 @@ def get_seed_scores_for_list_of_pair_of_ncbiIds(pairs_of_interest, relative_geno
 
                 if patricIds[ncbi_a_genome] is None or patricIds[ncbi_b_genome] is None:
                     continue
-                # [NOTE] We do not use query_from_B_to_A as all associations are double (both A->B and B->A) in the pairs_of_interest
-                query_from_A_to_B, query_from_B_to_A = query_for_getting_seed_scores(patricIds[ncbi_a_genome], patricIds[ncbi_b_genome])
-                if len(query_from_A_to_B) > 1:
-                    if pair in seed_scores_queries:
-                        seed_scores_queries[pair][len(seed_scores_queries[pair])] = {}
-                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["organism-A"] = ncbi_a
-                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["organism-B"] = ncbi_b
-                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["genome-A"] = ncbi_a_genome
-                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["patric-genome-A"] = patricIds[ncbi_a_genome]
-                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["genome-B"] = ncbi_b_genome
-                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["patric-genome-B"] = patricIds[ncbi_b_genome]
-                        seed_scores_queries[pair][len(seed_scores_queries[pair]) - 1]["query"] = query_from_A_to_B
-                    else:
-                        seed_scores_queries[pair] = {}
-                        seed_scores_queries[pair][0] = {}
-                        seed_scores_queries[pair][0]["organism-A"] = ncbi_a
-                        seed_scores_queries[pair][0]["organism-B"] = ncbi_b
-                        seed_scores_queries[pair][0]["genome-A"] = ncbi_a_genome
-                        seed_scores_queries[pair][0]["patric-genome-A"] = patricIds[ncbi_a_genome]
-                        seed_scores_queries[pair][0]["genome-B"] = ncbi_b_genome
-                        seed_scores_queries[pair][0]["patric-genome-B"] = patricIds[ncbi_b_genome]
-                        seed_scores_queries[pair][0]["query"] = query_from_A_to_B
-    # Query to the database
-    cnx, cursor = create_cursor()
-    for pair, cases in seed_scores_queries.items():
-        for number_case, case in cases.items():
-            cursor.execute(case["query"])
-            seed_score = cursor.fetchall()
 
+                # [NOTE] We do not use query_from_B_to_A as all associations are double (both A->B and B->A) in the pairs_of_interest
+                seed_scores_query, q2 = query_for_getting_seed_scores(patricIds[ncbi_a_genome], patricIds[ncbi_b_genome])
+                seed_complements_query = query_for_getting_seed_complements(patricIds[ncbi_a_genome], patricIds[ncbi_b_genome])
+
+                if len(seed_scores_query) > 1:
+                    if pair in seed_queries:
+                        seed_queries[pair][len(seed_queries[pair])] = {}
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["organism-A"] = ncbi_a
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["organism-B"] = ncbi_b
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["genome-A"] = ncbi_a_genome
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["patric-genome-A"] = patricIds[ncbi_a_genome]
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["genome-B"] = ncbi_b_genome
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["patric-genome-B"] = patricIds[ncbi_b_genome]
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["seed-scores-query"] = seed_scores_query
+                        seed_queries[pair][len(seed_queries[pair]) - 1]["seed-complements-query"] = seed_complements_query
+                    else:
+                        seed_queries[pair] = {}
+                        seed_queries[pair][0] = {}
+                        seed_queries[pair][0]["organism-A"] = ncbi_a
+                        seed_queries[pair][0]["organism-B"] = ncbi_b
+                        seed_queries[pair][0]["genome-A"] = ncbi_a_genome
+                        seed_queries[pair][0]["patric-genome-A"] = patricIds[ncbi_a_genome]
+                        seed_queries[pair][0]["genome-B"] = ncbi_b_genome
+                        seed_queries[pair][0]["patric-genome-B"] = patricIds[ncbi_b_genome]
+                        seed_queries[pair][0]["seed-scores-query"] = seed_scores_query
+                        seed_queries[pair][0]["seed-complements-query"] = seed_complements_query
+
+    # Query to the database
+    nonseeds, kmap = load_seed_complement_files()
+    cnx, cursor = create_cursor()
+    for pair, cases in seed_queries.items():
+        for number_case, case in cases.items():
+            # Get seed scores
+            cursor.execute(case["seed-scores-query"])
+            seed_score = cursor.fetchall()
             if len(seed_score) > 0:
                 competition, cooperation = float(seed_score[0][0]), float(seed_score[0][1])
-                seed_scores_queries[pair][number_case]["competition"] = competition
-                seed_scores_queries[pair][number_case]["cooperation"] = cooperation
+                seed_queries[pair][number_case]["competition"] = competition
+                seed_queries[pair][number_case]["cooperation"] = cooperation
+            # Get seed complements
+            cursor.execute(case["seed-complements-query"])
+            db_seed_compl = cursor.fetchall()
+            if len(db_seed_compl) > 0:
+                print("=====")
+                print("patricA", case["patric-genome-A"])
+                print("patricB", case["patric-genome-B"])
+                seed_compl = get_paired_seed_complements(beneficiary=case["patric-genome-A"],
+                                                         donor=case["patric-genome-B"], 
+                                                         kmap=kmap, 
+                                                         nonseeds=nonseeds, 
+                                                         type="patricGenomeIds", 
+                                                         complement=db_seed_compl)
+                seed_queries[pair][number_case]["complements"] = seed_compl
 
-    seed_scores = {}
-    for k, v in seed_scores_queries.items():
-        seed_scores[k] = {}
+    seed_scores_and_complements = {}
+    for k, v in seed_queries.items():
+        print(">k", k)
+        seed_scores_and_complements[k] = {}
         filtered_data = {rindex: rdata for rindex, rdata in v.items() if 'competition' in list(rdata.keys())}
-        seed_scores[k] = filtered_data
+        if len(filtered_data) > 0:
+            seed_scores_and_complements[k] = filtered_data
 
-    return seed_scores
+    return seed_scores_and_complements
 
 
 def get_seed_scores_for_pair_of_ncbiIds(ncbiId_A, ncbiId_B):
@@ -459,13 +526,25 @@ def get_seed_scores_for_pair_of_genomes(genome_A="GCA_003184265.1", genome_B="GC
     query_from_A_to_B, query_from_B_to_A = query_for_getting_seed_scores(patricIds[genome_A], patricIds[genome_B])
     export = execute(query_from_A_to_B)
     try:
-        competition_score_A_B, cooperation_score_A_B = export[0][0], export[0][1]
-    except ValueError:
-        return "Competition and cooperation scores based on the seed sets derived from genome-scale reconstructions of those 2 genomes have not been calculated."
+        if len(export) >= 1:
+            competition_score_A_B, cooperation_score_A_B = export[0][0], export[0][1]
+            seeds_A_B = genome_A, genome_B, competition_score_A_B, cooperation_score_A_B
+        else:
+            seeds_A_B = "Competition and cooperation scores based on the seed sets derived from genome-scale reconstructions of those 2 genomes have not been calculated."
+    except IndexError:
+        seeds_A_B = "Error accessing values from export. Check if the list has the expected structure."
+        pass
+
     export = execute(query_from_B_to_A)
-    competition_score_B_A, cooperation_score_B_A = export[0][0], export[0][1]
-    seeds_A_B = genome_A, genome_B, competition_score_A_B, cooperation_score_A_B
-    seeds_B_A = genome_B, genome_A, competition_score_B_A, cooperation_score_B_A
+    try:
+        if len(export) >= 1:
+            competition_score_B_A, cooperation_score_B_A = export[0][0], export[0][1]
+            seeds_B_A = genome_A, genome_B, competition_score_B_A, cooperation_score_B_A
+        else:
+            seeds_B_A = "Competition and cooperation scores based on the seed sets derived from genome-scale reconstructions of those 2 genomes have not been calculated."
+    except IndexError:
+        seeds_B_A = "Error accessing values from export. Check if the list has the expected structure."
+        pass
     return seeds_A_B, seeds_B_A
 
 
@@ -509,34 +588,158 @@ def get_patric_id_of_gc_accession_list(gc_accesion_list=["GCA_003184265.1"]):
     return gc_to_patric_dict
 
 
-def gc_unify(gc_list):
+# Seed complements related
+def get_paired_seed_complements(beneficiary="GCA_003184265.1", donor="GCA_000015645.1", kmap=None, nonseeds=None, type="ncbiGenomeIds", complement=None):
     """
-    Removes duplicates of a genome that has entries both as GCA and GCF in the db.
-    """
-    return list(set([x.replace("GCA", "GCF") for x in gc_list]))
+    Gets a pair of genomes as input that could be NCBI accession ids or PATRIC ids
+    and returns a list with the seed complements that the donor could provide with.
 
-
-def alt_genome_prefix(gc):
+    Returns:
+    a list of lists where each inner list includes:
+    a. metabolism category of the kegg map
+    b. kegg map
+    c. KEGG compound ids of the seeds
+    d. ModelSEED compound ids of the seeds
+    e. a URL of the map colored with the non-seed compounds (bluesky) that the GEM includes and the seeds (red) it may get from the donor
     """
-    Switches GCA prefic of a genome accession id to GCF and vice-versa.
-    """
-    if gc.startswith("GCA_"):
-        gc_alt = gc.replace("GCA_", "GCF_")
-    elif gc.startswith("GCF_"):
-        gc_alt = gc.replace("GCF_", "GCA_")
+    if type == "ncbiGenomeIds":
+        patricIds = list(get_patric_id_of_gc_accession_list([beneficiary, donor]).values())
+        if len(patricIds) < 2:
+            return "No PATRIC ids for both NCBI genome ids."
+    elif type == "patricGenomeIds":
+        patricIds = [beneficiary, donor]
+        if len(patricIds) < 2:
+            return "No pair of PATRIC ids, probably one is empty. Don't know here about whether it's actually present on my db."
+    elif type == "ncbiTaxonomyIds":
+        try:
+            genomeIds = [list(get_genomes_for_ncbi_tax_id(beneficiary).values())[0][0],
+                        list(get_genomes_for_ncbi_tax_id(donor).values())[0][0]
+            ]
+        except:
+            return "No NCBI genomes available on my db for both NCBI Taxonomy ids."
+        patricIds = list(get_patric_id_of_gc_accession_list(genomeIds).values())
     else:
-        return 0
-    return gc_alt
+        return "Type of genome ids not supported."
+
+    if None in patricIds:
+        return "no pair of GEMs"
+
+    if kmap is None:
+        nonseeds, kmap = load_seed_complement_files()
+
+    if complement is None:
+        query = query_for_getting_seed_complements(patricIds[0], patricIds[1])
+        export = execute(query)
+        try:
+            seed_compl = [x.strip() for x in export[0][0].split(",")]
+            seed_compl_map = kmap[kmap['modelseed'].isin(seed_compl)]
+        except IndexError as e:
+            # raise IndexError(f"IndexError: {e} No GEMs available for this pair of genomes.")
+            print(e)
+            pass
+    else:
+        try:
+            seed_compl = [x.strip() for x in complement[0][0].split(",")]
+            seed_compl_map = kmap[kmap['modelseed'].isin(seed_compl)]
+        except IndexError as e:
+            raise IndexError(f"IndexError: {e} No GEMs available for this pair of genomes.")
+
+    # Get non seeds of the GEM; patricIds[0] corresponds to the beneficiary
+    beneficiarys_nonseeds = nonseeds.loc[patricIds[0]].item()
+    beneficiarys_nonseeds_map = kmap[kmap['modelseed'].isin(beneficiarys_nonseeds)]
+
+    # Maps seeds found in 
+    maps_seeds_in = list(kmap[kmap['modelseed'].isin(seed_compl)]["map"].unique())
+
+    seeds_complements_verbose = []
+    for kegg_map in maps_seeds_in:
+        ksc = list(seed_compl_map[seed_compl_map["map"] == kegg_map]["kegg_compound"])
+        msc = ",".join(set(seed_compl_map[seed_compl_map["map"] == kegg_map]["modelseed"]))  # set makes sure I only keep once each id
+        ns = list(beneficiarys_nonseeds_map[beneficiarys_nonseeds_map["map"] == kegg_map]["kegg_compound"])
+        surl = build_url_with_seed_complements(ksc, ns, kegg_map)
+        des = kmap[kmap["map"]==kegg_map]["description"].unique().item()
+        cat = kmap[kmap["map"]==kegg_map]["category"].unique().item()
+        ksc = ",".join(set(ksc))
+        seeds_complements_verbose.append([cat, des, msc, ksc, surl])
+
+    return order_seed_complements(seeds_complements_verbose)
 
 
-def scores_to_dict(list_of_tuples):
-    tmp = {}
-    counter = 0
-    for case in list_of_tuples:
-        if isinstance(case, tuple):
-            tmp[counter] = {}
-            tmp[counter]["genome_A"] = case[0]
-            tmp[counter]["genome_B"] = case[1]
-            tmp[counter]["competition"] = case[2]
-            tmp[counter]["cooperatiom"] = case[3]
-    return tmp
+def order_seed_complements(r):
+    """
+    Order seed complements so they display based on their metabolism category 
+    which have been ranked according to what metabolic interactions we believe most common.
+    """
+    # Define a custom sorting function
+    def custom_sort(item):
+        return category_index.get(item[0], len(order_list))
+    # Create a dictionary to map each category to its corresponding index in the order_list
+    order_list = [
+        'Amino acid metabolism',
+        'Metabolism of cofactors and vitamins',
+        'Energy metabolism',
+        'Carbohydrate metabolism',
+        'Nucleotide metabolism',
+        'Biosynthesis of other secondary metabolites',
+        'Biosynthesis of terpenoids and polyketides',
+        'Lipid metabolism',
+        'Glycan metabolism',
+        'Xenobiotics biodegradation'
+    ]
+    category_index = {category: index for index, category in enumerate(order_list)}
+    # Sort the data using the custom sorting function
+    sorted_data = sorted(r, key=custom_sort)
+    return sorted_data
+
+
+def build_url_with_seed_complements(seed_complements, nonseeds, kmap):
+    base_url = "https://www.kegg.jp/kegg-bin/show_pathway?"
+    url = "".join([base_url, kmap]) + "/"
+    # present_compounds_color = "%09%23ff0000/"
+    # complemet_compounds_color = "%20skyblue%2Cblue/"
+    present_compounds_color = "%20skyblue%2Cblue/"
+    complemet_compounds_color = "%09%23ff0000/"
+
+    for compound in nonseeds:
+        url += compound + present_compounds_color
+    for compound in seed_complements:
+        url += compound + complemet_compounds_color
+    return url
+
+
+def query_for_getting_seed_complements(patric_beneficiary_id, patric_donor_id):
+    """
+    Queries for getting from MySQL seed complements of a pair of PATRIC ids where the first potentially benefits from the latter.
+    """
+    q = "".join([
+        'SELECT seedComplements FROM SeedComplements WHERE patricBeneficaryId = "',
+        patric_beneficiary_id,
+        '" AND patricDonorId = "',
+        patric_donor_id,
+        '";'
+    ])
+    return q
+
+
+def load_seed_complement_files():
+
+    with open(os.path.join(MAPPINGS, "updated_non_seedsets_of_interest.pckl"), "rb") as ns:
+        nonseeds = pickle.load(ns)
+
+    kmap = pd.read_csv( os.path.join(MAPPINGS, "seedId_keggId_module.tsv"), sep="\t",  header=None)
+    kmap.columns = ["modelseed", "kegg_compound", "kegg_module"]
+
+    module_to_map = pd.read_csv( os.path.join(MAPPINGS, "module_map_pairs.tsv"), sep="\t", header=None)
+    module_to_map.columns = ["module", "map"]
+    module_to_map['module'] = module_to_map['module'].str.replace("md:", '')
+    module_to_map['map'] = module_to_map["map"].str.strip()
+
+    module_map_dict = module_to_map.set_index('module')['map'].to_dict()
+    kmap['map'] = kmap['kegg_module'].map(module_map_dict)
+
+    maps_categories_and_descrs = pd.read_csv(os.path.join(MAPPINGS, "related_kegg_maps_descriptions.tsv"), sep="\t", header=None)
+    maps_categories_and_descrs.columns = ["map", "description", "category"]
+
+    kmap = pd.merge(kmap, maps_categories_and_descrs, on='map', how='left')
+
+    return nonseeds, kmap
