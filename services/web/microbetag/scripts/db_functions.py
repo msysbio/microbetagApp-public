@@ -398,6 +398,9 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
 def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_interest, relative_genomes, patricIds):
     """
     Get seed scores and seed complements for all pairs of NCBI ids found correlated in the network.
+    
+    pairs_of_interest: set of NCBI Ids found to cooccurre/deplete
+    relative_genomes: a dictionary with NCBI Id as a key and a list of genome accessiond ids as value
     """
     # Build the queries
     seed_queries = {}
@@ -423,37 +426,29 @@ def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_intere
                     continue
 
                 # [NOTE] We do not use query_from_B_to_A as all associations are double (both A->B and B->A) in the pairs_of_interest
-                seed_scores_query, q2 = query_for_getting_seed_scores(patricIds[ncbi_a_genome], patricIds[ncbi_b_genome])
+                seed_scores_query, _ = query_for_getting_seed_scores(patricIds[ncbi_a_genome], patricIds[ncbi_b_genome])
                 seed_complements_query = query_for_getting_seed_complements(patricIds[ncbi_a_genome], patricIds[ncbi_b_genome])
 
                 if len(seed_scores_query) > 1:
-                    if pair in seed_queries:
-                        seed_queries[pair][len(seed_queries[pair])] = {}
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["organism-A"] = ncbi_a
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["organism-B"] = ncbi_b
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["genome-A"] = ncbi_a_genome
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["patric-genome-A"] = patricIds[ncbi_a_genome]
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["genome-B"] = ncbi_b_genome
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["patric-genome-B"] = patricIds[ncbi_b_genome]
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["seed-scores-query"] = seed_scores_query
-                        seed_queries[pair][len(seed_queries[pair]) - 1]["seed-complements-query"] = seed_complements_query
-                    else:
-                        seed_queries[pair] = {}
-                        seed_queries[pair][0] = {}
-                        seed_queries[pair][0]["organism-A"] = ncbi_a
-                        seed_queries[pair][0]["organism-B"] = ncbi_b
-                        seed_queries[pair][0]["genome-A"] = ncbi_a_genome
-                        seed_queries[pair][0]["patric-genome-A"] = patricIds[ncbi_a_genome]
-                        seed_queries[pair][0]["genome-B"] = ncbi_b_genome
-                        seed_queries[pair][0]["patric-genome-B"] = patricIds[ncbi_b_genome]
-                        seed_queries[pair][0]["seed-scores-query"] = seed_scores_query
-                        seed_queries[pair][0]["seed-complements-query"] = seed_complements_query
+                    if pair not in seed_queries:
+                        seed_queries[pair] = []
+                    entry = {
+                        "organism-A": ncbi_a,
+                        "organism-B": ncbi_b,
+                        "genome-A": ncbi_a_genome,
+                        "patric-genome-A": patricIds[ncbi_a_genome],
+                        "genome-B": ncbi_b_genome,
+                        "patric-genome-B": patricIds[ncbi_b_genome],
+                        "seed-scores-query": seed_scores_query,
+                        "seed-complements-query": seed_complements_query
+                    }
+                    seed_queries[pair].append(entry)
 
     # Query to the database
     nonseeds, kmap = load_seed_complement_files()
     cnx, cursor = create_cursor()
     for pair, cases in seed_queries.items():
-        for number_case, case in cases.items():
+        for number_case, case in enumerate(cases):
             # Get seed scores
             cursor.execute(case["seed-scores-query"])
             seed_score = cursor.fetchall()
@@ -465,9 +460,6 @@ def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_intere
             cursor.execute(case["seed-complements-query"])
             db_seed_compl = cursor.fetchall()
             if len(db_seed_compl) > 0:
-                print("=====")
-                print("patricA", case["patric-genome-A"])
-                print("patricB", case["patric-genome-B"])
                 seed_compl = get_paired_seed_complements(beneficiary=case["patric-genome-A"],
                                                          donor=case["patric-genome-B"], 
                                                          kmap=kmap, 
@@ -478,9 +470,9 @@ def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_intere
 
     seed_scores_and_complements = {}
     for k, v in seed_queries.items():
-        print(">k", k)
         seed_scores_and_complements[k] = {}
-        filtered_data = {rindex: rdata for rindex, rdata in v.items() if 'competition' in list(rdata.keys())}
+        # filtered_data = {rindex: rdata for rindex, rdata in v.items() if 'competition' in list(rdata.keys()) or 'complements' in list(rdata.keys())}
+        filtered_data = {rindex: rdata for rindex, rdata in enumerate(v) if 'competition' in list(rdata.keys()) or 'complements' in list(rdata.keys())}
         if len(filtered_data) > 0:
             seed_scores_and_complements[k] = filtered_data
 
