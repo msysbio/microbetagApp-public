@@ -745,14 +745,13 @@ def convert_to_float(data):
 
 
 def remove_query(dictionary):
-    """ Recursive function to remove the sql quert from a dictionary"""
+    """ Recursive function to remove the sql query from a dictionary"""
     if isinstance(dictionary, dict):
         # Create a copy of the dictionary to avoid modifying it while iterating
         dictionary_copy = dictionary.copy()
-
         # Iterate over the items in the dictionary
         for key, value in dictionary.items():
-            if key == "query":
+            if key == "seed-complements-query" or key == "seed-scores-query":
                 # Remove the "query" key
                 del dictionary_copy[key]
             elif isinstance(value, dict):

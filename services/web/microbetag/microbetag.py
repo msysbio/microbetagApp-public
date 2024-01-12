@@ -209,11 +209,12 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
             logging.warn("Not all sequence identifiers in the co-occurrence network provided are also menbers of abundance table!")
             return 0
 
-    """Example:
-    [{'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
-        'node_b': 'microbetag_21', 'ncbi_tax_id_node_b': 136703, 'gtdb_gen_repr_node_b': nan, 'ncbi_tax_level_node_b': 'species'},.. {..}] """
+    """
+    Example edgelist_as_a_list_of_dicts:  
+    [ {'node_a': 'microbetag_17', 'ncbi_tax_id_node_a': 77133, 'gtdb_gen_repr_node_a': 'GCA_903925685.1', 'ncbi_tax_level_node_a': 'mspecies',
+      'node_b': 'microbetag_21', 'ncbi_tax_id_node_b': 136703, 'gtdb_gen_repr_node_b': nan, 'ncbi_tax_level_node_b': 'species'} ] 
+    """
     edgelist_as_a_list_of_dicts = edge_list.map(lambda x: str(x) if pd.notna(x) else 'null').to_dict(orient="records")
-
 
     # # Make a set with all unique sequence ids that are nodes in the network
     # all_nodes_ids = set(pd.concat([edge_list["node_a"], edge_list["node_b"]]).tolist())
@@ -354,7 +355,17 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
 
         logging.info("""STEP: Seed scores based on draft genome-scale reconstructions.""".center(80, "*"))
 
-        ncbi_id_pairs_with_seed_scores = get_seed_scores_for_list_of_pair_of_ncbiIds(species_level_associations, genomes_of_species_nodes)
+
+        # Get all PATRIC ids corresponding to the relative_genomes
+        flat_list = [item for sublist in list(genomes_of_species_nodes.values()) for item in sublist]
+        patricIds = get_patric_id_of_gc_accession_list(flat_list)
+
+        # Get Seed scores
+        ncbi_id_pairs_with_seed_scores = get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(
+            species_level_associations, 
+            genomes_of_species_nodes,
+            patricIds
+        )
 
         if not os.path.exists(seed_scores_dir):
             os.mkdir(seed_scores_dir)
@@ -363,11 +374,12 @@ def main(out_dir, cfg, abundance_table_file=None, edge_list_file=None, metadata_
         ncbi_id_pairs_with_seed_scores = {tuple_to_str(key): value for key, value in ncbi_id_pairs_with_seed_scores.items()}
         ncbi_id_pairs_with_seed_scores_str = convert_to_json_serializable(ncbi_id_pairs_with_seed_scores)  # convert_tuples_to_strings
         ncbi_id_pairs_witt_seed_scores_js = convert_tuples_to_strings(ncbi_id_pairs_with_seed_scores_str)
-
         with open(os.path.join(seed_scores_dir, "seed_scores.json"), "w") as f:
             json.dump(ncbi_id_pairs_witt_seed_scores_js, f)
 
         logging.info("Seed scores have been assigned successfully.". center(80, "*"))
+
+
 
     # Run manta
     if cfg["manta"]:
