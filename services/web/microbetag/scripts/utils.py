@@ -33,7 +33,8 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts, seqID_taxid_l
     checks the ncbi_tax_level of each node and in case where for both nodes it is species or strain
     gets their corresponding GTDB genomes on microbetagDB
     Returns:
-    a. pairs_of_interest: a set with the ncbi tax ids of the linking nodes
+    a. pairs_of_interest: a set with the ncbi tax ids of the linking nodes 
+        NOTE: an association corresponds to 2 entries mentioning both A -> B and B -> A associations
     b. related_genomes: a dictionary with the genomes assigned (values) to each ncbi id (key)
     c. parent_children_ncbiIds_present: {}
 
@@ -60,9 +61,6 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts, seqID_taxid_l
             pairs_of_ncbi_id_of_interest.add((taxon_a, taxon_b))
             pairs_of_ncbi_id_of_interest.add((taxon_b, taxon_a))
             pairs_of_seqId_of_interest.add((pair["node_a"], pair["node_b"]))
-
-    print("\n\n\n\n\n\n\n\n\nset_of_ncbiids_of_interest")
-    print(set_of_ncbiids_of_interest)
 
     # Start building dics
     related_genomes = {}

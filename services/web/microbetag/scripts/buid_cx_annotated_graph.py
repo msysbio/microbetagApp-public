@@ -380,7 +380,9 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
 
                     for scenario in seed_scores_dict[ncbi_pair_as_tuple_b_a].values():
                         if "complements" in scenario.keys():
-                            attr = "".join(["seedCompl::", scenario["genome-B"], ":", scenario["genome-A"]])
+                            # NOTE: the `case` variable iterates over the nodes; thus we change from node_a to node_b in the B->A case.
+                            #       however, `scenario` is specific for each direction, thus we always use `genome-A` as source and `genome-B` as target.
+                            attr = "".join(["seedCompl::", scenario["genome-A"], ":", scenario["genome-B"]])
                             # NOTE: in case a map has no description or for any reason we have a nan value from the dfs this will fail
                             merged_compl = ["^".join(gcompl) for gcompl in scenario["complements"]]
                             edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": attr, "v": merged_compl, "d": "list_of_string"})
