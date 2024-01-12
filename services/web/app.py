@@ -86,6 +86,12 @@ def ncbi_ids_complements(beneficiary_ncbi_tax_id="2184738", donor_ncbi_tax_id="8
     return jsonify(q)
 
 
+@app.route('/seed-complements/<string:beneficiaryId>/<string:donorId>/<string:typeCategory>', methods=['GET'])
+def seed_complements(beneficiaryId="2184738", donorId="86180", typeCategory="ncbiTaxonomyIds"):
+    q = db_functions.get_paired_seed_complements(beneficiary=beneficiaryId, donor=donorId, type=typeCategory)
+    # return jsonify(Q)
+    return q
+
 @app.route('/seed-scores/<string:ncbiId_A>/<string:ncbiId_B>', methods=['GET'])
 def seed_scores(ncbiId_A="86180", ncbiId_B="2184738"):
     """
