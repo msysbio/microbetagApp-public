@@ -610,6 +610,9 @@ def get_paired_seed_complements(beneficiary="GCA_003184265.1", donor="GCA_000015
         except:
             return "No NCBI genomes available on my db for both NCBI Taxonomy ids."
         patricIds = list(get_patric_id_of_gc_accession_list(genomeIds).values())
+        if len(patricIds) < 2:
+            print(patricIds)
+            return "No PATRIC ids for both NCBI genome ids."
     else:
         return "Type of genome ids not supported."
 

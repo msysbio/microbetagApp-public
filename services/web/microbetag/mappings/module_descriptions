@@ -433,6 +433,8 @@ Pathogenicity	M00542	EHEC/EPEC pathogenicity signature: T3SS and effectors
 Pathogenicity	M00564	Helicobacter pylori pathogenicity signature
 Pathogenicity	M00574	Pertussis pathogenicity signature: pertussis toxin
 Pathogenicity	M00575	Pertussis pathogenicity signature: T1SS
+Pathogenicity	M00859	Bacillus anthracis pathogenicity signature, anthrax toxin
+Pathogenicity	M00860	Bacillus anthracis pathogenicity signature, polyglutamic acid capsule biosynthesis
 Drug resistance	M00625	Methicillin resistance
 Drug resistance	M00627	beta-Lactam resistance
 Drug resistance	M00649	Multidrug resistance: efflux pump AdeABC
@@ -441,9 +443,37 @@ Drug resistance	M00652	Vancomycin resistance: D-Ala-D-Ser type
 Drug resistance	M00725	Cationic antimicrobial peptide (CAMP) resistance: dltABCD operon
 Drug resistance	M00726	Cationic antimicrobial peptide (CAMP) resistance: lysyl-phosphatidylglycerol (L-PG) synthase MprF
 Drug resistance	M00730	Cationic antimicrobial peptide (CAMP) resistance: VraFG transporter
+Drug resistance	M00641	Multidrug resistance, efflux pump MexEF-OprN
 Pathogenicity	M00850	Vibrio cholerae pathogenicity signature: cholera toxins
 Drug resistance	M00851	Carbapenem resistance
 Pathogenicity	M00852	Vibrio cholerae pathogenicity signature: toxin coregulated pilus
 Drug resistance	M00705	Multidrug resistance: efflux pump MepA
+Pathogenicity	M00853	ETEC pathogenicity signature, colonization factors
+Pathogenicity	M00576	ETEC pathogenicity signature, heat-labile and heat-stable enterotoxins
+Pathogenicity	M00857	Salmonella enterica pathogenicity signature, Vi antigen
+Pathogenicity	M00856	Salmonella enterica pathogenicity signature, typhoid toxin
 Drug resistance	M00700	Multidrug resistance: efflux pump AbcA
-Drug resistance M00642  Multidrug resistance, efflux pump MexJK-OprM
+Drug resistance	M00642	Multidrug resistance, efflux pump MexJK-OprM
+Drug resistance	M00698	Multidrug resistance, efflux pump BpeEF-OprC
+Drug resistance	M00702	Multidrug resistance, efflux pump NorB
+Drug resistance	M00714	Multidrug resistance, efflux pump QacA
+Drug resistance	M00746	Multidrug resistance, repression of porin OmpF
+Drug resistance	M00696	Multidrug resistance, efflux pump AcrEF-TolC
+Drug resistance	M00769	Multidrug resistance, efflux pump MexPQ-OpmE
+Drug resistance	M00643	Multidrug resistance, efflux pump MexXY-OprM
+Drug resistance	M00639	Multidrug resistance, efflux pump MexCD-OprJ
+Drug resistance	M00718	Multidrug resistance, efflux pump MexAB-OprM
+Drug resistance	M00744	Cationic antimicrobial peptide (CAMP) resistance, protease PgtE
+Drug resistance	M00704	Tetracycline resistance, efflux pump Tet38
+Drug resistance	M00745	Imipenem resistance, repression of porin OprD
+Drug resistance	M00697	Multidrug resistance, efflux pump MdtEF-TolC
+Symbiosis	M00664	Nodulation
+Metabolic capacity	M00611	Oxygenic photosynthesis in plants and cyanobacteria
+Metabolic capacity	M00612	Anoxygenic photosynthesis in purple bacteria
+Metabolic capacity	M00613	Anoxygenic photosynthesis in green nonsulfur bacteria
+Metabolic capacity	M00614	Anoxygenic photosynthesis in green sulfur bacteria
+Metabolic capacity	M00617	Methanogen
+Metabolic capacity	M00618	Acetogen
+Metabolic capacity	M00615	Nitrate assimilation
+Metabolic capacity	M00616	Sulfate-sulfur assimilation
+Plant pathogenicity	M00660	Xanthomonas spp. pathogenicity signature, T3SS and effectors
