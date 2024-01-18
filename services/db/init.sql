@@ -1,7 +1,7 @@
 -- author: Haris Zafeiropoulos
 -- email: haris.zafeiropoulos@kuleuven.be
 -- description: Initiate microbetag database scheme and populate data
--- usage: mysql --local-infile=1 -u msysbio -p < init.sql
+-- usage: mysql --local-infile=1 -u root -p < init.sql
 -- notes: makes sure that you have first run SET GLOBAL local_infile=ON;
 --        this will allow the copy of the .tsv/.csv files
 
@@ -18,7 +18,7 @@ USE microbetagDB;
 	TABLE RELATED TO PHEND PREDICTIONS
 /////////////////////////////////////// */
 
-DROP TABLE IF EXISTS phenDB; 
+DROP TABLE IF EXISTS phenDB;
 CREATE TABLE phenDB(
     gtdbId VARCHAR(15),
 	aceticAcid VARCHAR(5),
@@ -83,15 +83,19 @@ CREATE TABLE phenDB(
 	T6SSScore DECIMAL(5,4),
 	thermophilic VARCHAR(5),
 	thermophilicScore DECIMAL(5,4),
+	anaerobe VARCHAR(5),
+	anaerobeScore DECIMAL(5,4),
+	aerobe VARCHAR(5),
+	aerobeScore DECIMAL(5,4),
     PRIMARY KEY (gtdbId)
-)  
+)
 ENGINE=InnoDB 
 ROW_FORMAT=COMPRESSED;
 
 -- Disable keys and indexes
 ALTER TABLE phenDB DISABLE KEYS;
 
-LOAD DATA INFILE '/var/lib/mysql-files/gtdb_phen_predictions.tsv'
+LOAD DATA INFILE '/var/lib/mysql-files/gtdb_phen_predictions_oxy.tsv'
 INTO TABLE phenDB
 FIELDS TERMINATED BY '\t'
 LINES TERMINATED BY '\n';
@@ -217,3 +221,42 @@ run mysql like this:
 mysql --local-infile -u username -p
 to enable LOCAL INFILE
 */
+
+
+
+/* /////////////////////////////////////////////
+	TABLE FOR SEED COMPLEMENTARITIES
+//////////////////////////////////////////////// */
+
+
+
+DROP TABLE IF EXISTS SeedComplements;
+CREATE TABLE SeedComplements( 
+	patricBeneficaryId VARCHAR(15), 
+	patricDonorId VARCHAR(15), 
+	seedComplements VARCHAR(1000), 
+	PRIMARY KEY (patricBeneficaryId, patricDonorId)
+);
+
+
+LOAD DATA INFILE '/var/lib/mysql-files/overlaps_01.tsv'
+INTO TABLE SeedComplements
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n';
+
+
+
+
+
+
+
+
+
+CREATE TABLE nonSeedSets( 
+	patricId VARCHAR(15), 
+	nonSeeds VARCHAR(4500), 
+	PRIMARY KEY (patricId)
+);
+
+
+
