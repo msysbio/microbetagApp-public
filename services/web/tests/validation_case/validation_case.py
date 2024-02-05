@@ -24,17 +24,17 @@ def get_variable_name(value, namespace):
 
 def get_compl_between_vario_and(interaction_species_ids):
     """
-    Exports complements between Variovorax and a taxonomic group. 
-    Both correspond to a list of NCBI Taxonomy ids. 
+    Exports complements between Variovorax and a taxonomic group.
+    Both correspond to a list of NCBI Taxonomy ids.
     The function returns 2 dictionaries with keys like:
-        ncbiIdForVorovoraxSpecies_ncbiIdForTaxonSpecies 
+        ncbiIdForVorovoraxSpecies_ncbiIdForTaxonSpecies
     and the other way around and values a list with the complements.
     """
     namespace = locals()
     interaction_taxon_name = get_variable_name(interaction_species_ids, namespace)
     vario_benefits_from = {}
     vario_provides_to = {}
-    counter = 0 
+    counter = 0
     for index_beneficiary, varioId in variovorax_ids.iterrows():
         t1 = time.time()
         counter += 1
@@ -53,10 +53,10 @@ def get_compl_between_vario_and(interaction_species_ids):
                     beneficiary=vvarioId,
                     donor=aarnimaId,
                     kmap=kmap,
-                    nonseeds =nonseeds, 
+                    nonseeds=nonseeds,
                     type="ncbiTaxonomyIds"
                 )
-            except:
+            except ValueError:
                 print("No good", vvarioId, aarnimaId)
                 pass
             akey = "_".join([vvarioId, aarnimaId])
@@ -66,19 +66,17 @@ def get_compl_between_vario_and(interaction_species_ids):
                     beneficiary=aarnimaId,
                     donor=vvarioId,
                     kmap=kmap,
-                    nonseeds =nonseeds, 
+                    nonseeds=nonseeds,
                     type="ncbiTaxonomyIds"
                 )
                 akey = "_".join([aarnimaId, vvarioId])
                 vario_provides_to[akey] = seed_compl
-            except:
+            except ValueError:
                 print("No good", aarnimaId, vvarioId)
                 pass
         t2 = time.time()
-        print("For an outer loop: ", str(t2-t1), "seconds.")
+        print("For an outer loop: ", str(t2 - t1), "seconds.")
     return vario_benefits_from, vario_provides_to
-
-
 
 
 def ratio_of_pairs_of_models_checked_vs_theoritical(ncbiListA, ncbiListB, ):
@@ -116,9 +114,7 @@ def get_unique_maps_for_a_met_category(dict_to_check, name_of_the_map):
 
 
 vario_benefits_from_kapabacteria, kapabacteria_benefit_from_vario = get_compl_between_vario_and(kapabacteris_ids)
-vario_benefits_from_saccharibacteria , saccharibacteria_benefit_from_vario = get_compl_between_vario_and(saccharibacteria_ids)
+vario_benefits_from_saccharibacteria, saccharibacteria_benefit_from_vario = get_compl_between_vario_and(saccharibacteria_ids)
 
 
 vario_benefits_from_microbacterium, microbacterium_benefits_from_vario = get_compl_between_vario_and(microbacterium_ids)
-
-

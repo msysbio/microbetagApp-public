@@ -395,10 +395,12 @@ def build_kegg_urls(complements_for_a_pair_of_genomes):
 
 
 # Seed scores related
-def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_interest, relative_genomes, patricIds):
+def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_interest=set([("1895733", "1895790")]),
+                                                                 relative_genomes={'1895733': ['GCF_001898645.1'], '1895790': ['GCF_001898835.1']},
+                                                                 patricIds={'GCF_001898645.1': '1895733.3', 'GCF_001898835.1': '1895790.3'}):
     """
     Get seed scores and seed complements for all pairs of NCBI ids found correlated in the network.
-    
+
     pairs_of_interest: set of NCBI Ids found to cooccurre/deplete
     relative_genomes: a dictionary with NCBI Id as a key and a list of genome accessiond ids as value
     """
@@ -461,10 +463,10 @@ def get_seed_scores_and_complements_for_list_of_pairs_of_ncbiIds(pairs_of_intere
             db_seed_compl = cursor.fetchall()
             if len(db_seed_compl) > 0:
                 seed_compl = get_paired_seed_complements(beneficiary=case["patric-genome-A"],
-                                                         donor=case["patric-genome-B"], 
-                                                         kmap=kmap, 
-                                                         nonseeds=nonseeds, 
-                                                         type="patricGenomeIds", 
+                                                         donor=case["patric-genome-B"],
+                                                         kmap=kmap,
+                                                         nonseeds=nonseeds,
+                                                         type="patricGenomeIds",
                                                          complement=db_seed_compl)
                 seed_queries[pair][number_case]["complements"] = seed_compl
 
@@ -581,7 +583,11 @@ def get_patric_id_of_gc_accession_list(gc_accesion_list=["GCA_003184265.1"]):
 
 
 # Seed complements related
-def get_paired_seed_complements(beneficiary="GCA_003184265.1", donor="GCA_000015645.1", kmap=None, nonseeds=None, type="ncbiGenomeIds", complement=None):
+def get_paired_seed_complements(beneficiary="GCA_003184265.1",
+                                donor="GCA_000015645.1",
+                                kmap=None, nonseeds=None,
+                                type="ncbiGenomeIds",
+                                complement=None):
     """
     Gets a pair of genomes as input that could be NCBI accession ids or PATRIC ids
     and returns a list with the seed complements that the donor could provide with.
@@ -605,9 +611,8 @@ def get_paired_seed_complements(beneficiary="GCA_003184265.1", donor="GCA_000015
     elif type == "ncbiTaxonomyIds":
         try:
             genomeIds = [list(get_genomes_for_ncbi_tax_id(beneficiary).values())[0][0],
-                        list(get_genomes_for_ncbi_tax_id(donor).values())[0][0]
-            ]
-        except:
+                         list(get_genomes_for_ncbi_tax_id(donor).values())[0][0]]
+        except ValueError:
             return "No NCBI genomes available on my db for both NCBI Taxonomy ids."
         patricIds = list(get_patric_id_of_gc_accession_list(genomeIds).values())
         if len(patricIds) < 2:
@@ -629,7 +634,6 @@ def get_paired_seed_complements(beneficiary="GCA_003184265.1", donor="GCA_000015
             seed_compl = [x.strip() for x in export[0][0].split(",")]
             seed_compl_map = kmap[kmap['modelseed'].isin(seed_compl)]
         except IndexError as e:
-            # raise IndexError(f"IndexError: {e} No GEMs available for this pair of genomes.")
             print(e)
             pass
     else:
@@ -643,18 +647,18 @@ def get_paired_seed_complements(beneficiary="GCA_003184265.1", donor="GCA_000015
     beneficiarys_nonseeds = nonseeds.loc[patricIds[0]].item()
     beneficiarys_nonseeds_map = kmap[kmap['modelseed'].isin(beneficiarys_nonseeds)]
 
-    # Maps seeds found in 
+    # Maps seeds found in
     maps_seeds_in = list(kmap[kmap['modelseed'].isin(seed_compl)]["map"].unique())
 
     seeds_complements_verbose = []
     for kegg_map in maps_seeds_in:
         ksc = list(seed_compl_map[seed_compl_map["map"] == kegg_map]["kegg_compound"])
-        msc = ",".join(set(seed_compl_map[seed_compl_map["map"] == kegg_map]["modelseed"]))  # set makes sure I only keep once each id
+        msc = ";".join(set(seed_compl_map[seed_compl_map["map"] == kegg_map]["modelseed"]))  # set makes sure I only keep once each id
         ns = list(beneficiarys_nonseeds_map[beneficiarys_nonseeds_map["map"] == kegg_map]["kegg_compound"])
         surl = build_url_with_seed_complements(ksc, ns, kegg_map)
-        des = kmap[kmap["map"]==kegg_map]["description"].unique().item()
-        cat = kmap[kmap["map"]==kegg_map]["category"].unique().item()
-        ksc = ",".join(set(ksc))
+        des = kmap[kmap["map"] == kegg_map]["description"].unique().item()
+        cat = kmap[kmap["map"] == kegg_map]["category"].unique().item()
+        ksc = ";".join(set(ksc))
         seeds_complements_verbose.append([cat, des, msc, ksc, surl])
 
     return order_seed_complements(seeds_complements_verbose)
@@ -662,7 +666,7 @@ def get_paired_seed_complements(beneficiary="GCA_003184265.1", donor="GCA_000015
 
 def order_seed_complements(r):
     """
-    Order seed complements so they display based on their metabolism category 
+    Order seed complements so they display based on their metabolism category
     which have been ranked according to what metabolic interactions we believe most common.
     """
     # Define a custom sorting function
@@ -721,10 +725,10 @@ def load_seed_complement_files():
     with open(os.path.join(MAPPINGS, "updated_non_seedsets_of_interest.pckl"), "rb") as ns:
         nonseeds = pickle.load(ns)
 
-    kmap = pd.read_csv( os.path.join(MAPPINGS, "seedId_keggId_module.tsv"), sep="\t",  header=None)
+    kmap = pd.read_csv(os.path.join(MAPPINGS, "seedId_keggId_module.tsv"), sep="\t", header=None)
     kmap.columns = ["modelseed", "kegg_compound", "kegg_module"]
 
-    module_to_map = pd.read_csv( os.path.join(MAPPINGS, "module_map_pairs.tsv"), sep="\t", header=None)
+    module_to_map = pd.read_csv(os.path.join(MAPPINGS, "module_map_pairs.tsv"), sep="\t", header=None)
     module_to_map.columns = ["module", "map"]
     module_to_map['module'] = module_to_map['module'].str.replace("md:", '')
     module_to_map['map'] = module_to_map["map"].str.strip()
