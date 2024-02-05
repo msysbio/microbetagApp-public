@@ -72,7 +72,7 @@ RUN wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz && \
 # Get manta and fuzz
 WORKDIR $APP_HOME
 RUN python -m pip install fuzzywuzzy
-RUN python -m pip install git+https://github.com/hariszaf/manta.git@fix-random 
+RUN python -m pip install git+https://github.com/hariszaf/manta.git@scipy-version 
 
 # copy project
 COPY . $APP_HOME
@@ -82,5 +82,4 @@ COPY . $APP_HOME
 
 # # change to the app user
 # USER app
-
 WORKDIR $APP_HOME

@@ -3,7 +3,7 @@ Aim:
     Gets an edgelist as input along with a df mentioning the NCBI Tax ids and the GTDB ids of the corresponding taxa
     and based on the annotation types asked, it build a cx-format graph that is going to be the final return object of microbetag
 
-Author: 
+Author:
     Haris Zafeiropoulos
 """
 try:
@@ -16,7 +16,6 @@ import pandas as pd
 import numpy as np
 import ast
 import json
-import numpy as np
 import os
 
 
@@ -145,10 +144,9 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
             if len(seedFindings) > 0:
                 for scenario in seedFindings.values():
                     cyTableColumns.append(
-                        {"applies_to": "edge_table", 
-                            "n": "".join(["seedCompl::", scenario["genome-A"], ":", scenario["genome-B"]]), 
-                            "d": "list_of_string"
-                        }
+                        {"applies_to": "edge_table",
+                            "n": "".join(["seedCompl::", scenario["genome-A"], ":", scenario["genome-B"]]),
+                            "d": "list_of_string"}
                     )
 
     """MANTA CLUSTERS"""
@@ -221,7 +219,7 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
         nodeAttributes["nodeAttributes"].append({"po": node_counter, "n": "microbetag::ncbi-tax-level", "v": case["ncbi_tax_level"].item(), "d": "string"})
 
         if not isinstance(case["gtdb_gen_repr"].item(), type(None)):
-                nodeAttributes["nodeAttributes"].append({"po": node_counter, "n": "microbetag::gtdb-genomes", "v": case["gtdb_gen_repr"].item(), "d": "list_of_string"})
+            nodeAttributes["nodeAttributes"].append({"po": node_counter, "n": "microbetag::gtdb-genomes", "v": case["gtdb_gen_repr"].item(), "d": "list_of_string"})
 
         if cfg["get_children"] and children_df is not None:
             ch_case = children_df[children_df["parent_ncbi_tax_id"] == case["ncbi_tax_id"].item()].dropna()
@@ -439,14 +437,13 @@ if __name__ == "__main__":
     Build an annotated .cx using already build objects
     """
     import sys
-   
 
     input_dir = os.path.join(sys.argv[1], "tests/build_annotated_graph")
-    edgelist_as_df = pd.read_csv( os.path.join(input_dir, "network.edgelist"), sep="\t", index_col = 0 )
+    edgelist_as_df = pd.read_csv(os.path.join(input_dir, "network.edgelist"), sep="\t", index_col=0)
     edgelist_as_a_list_of_dicts = edge_list_of_ncbi_ids(os.path.join(input_dir, "network.edgelist"))
-    seq_map = pd.read_csv( os.path.join(input_dir, "seq_map.csv"), sep="\t", index_col = 0 )
+    seq_map = pd.read_csv(os.path.join(input_dir, "seq_map.csv"), sep="\t", index_col=0)
     cfg = {
-        "taxonomy":"microbetag_prep", "delimiter": ";", "faprotax": False, "phenDB": True, "pathway_complement": True, 
+        "taxonomy": "microbetag_prep", "delimiter": ";", "faprotax": False, "phenDB": True, "pathway_complement": True,
         "seed_scores": False, "manta": False, "get_children": False, "sensitive": True, "heterogeneous": False
     }
     out_dir = input_dir
@@ -457,4 +454,3 @@ if __name__ == "__main__":
         cfg,
         out_dir
     )
-

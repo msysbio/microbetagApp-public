@@ -1,6 +1,6 @@
 """
 Aim:
-    Functions to support the main features of microbetag along with data conversions from and to each step. 
+    Functions to support the main features of microbetag along with data conversions from and to each step.
 
 Author:
     Haris Zafeiropoulos
@@ -33,12 +33,12 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts, seqID_taxid_l
     checks the ncbi_tax_level of each node and in case where for both nodes it is species or strain
     gets their corresponding GTDB genomes on microbetagDB
     Returns:
-    a. pairs_of_interest: a set with the ncbi tax ids of the linking nodes 
+    a. pairs_of_interest: a set with the ncbi tax ids of the linking nodes
         NOTE: an association corresponds to 2 entries mentioning both A -> B and B -> A associations
     b. related_genomes: a dictionary with the genomes assigned (values) to each ncbi id (key)
     c. parent_children_ncbiIds_present: {}
 
-        TODO: Make sure the type we are using for the mapping is the same 
+        TODO: Make sure the type we are using for the mapping is the same
     """
 
     set_of_ncbiids_of_interest = set()
@@ -82,9 +82,7 @@ def export_species_level_associations(edgelist_as_a_list_of_dicts, seqID_taxid_l
             children_ncbiId_genomes = children_df[(children_df["parent_ncbi_tax_id"] == ncbiId) &
                                                   (children_df["gtdb_gen_repr"].notna())
                                                   ][["child_ncbi_tax_id", "gtdb_gen_repr"]].to_dict(orient="records")
-
             print(children_ncbiId_genomes)
-
 
             for case in children_ncbiId_genomes:
                 c_genomes = case["gtdb_gen_repr"]
@@ -362,13 +360,13 @@ def map_seq_to_ncbi_tax_level_and_id(abd_tab, tax_col, seqId, tax_scheme, tax_de
                      "family_ncbi_id", "genus_ncbi_id", "species_ncbi_id", "ncbi_tax_id", "ncbi_tax_level", "gtdb_gen_repr"]
     splt_tax = splt_tax[desired_order]
 
-    tmp_df = splt_tax; tmp_df2 = tmp_df 
+    tmp_df = splt_tax; tmp_df2 = tmp_df
     tmp_df["gtdb_gen_repr"] = tmp_df["gtdb_gen_repr"].apply(lambda x: tuple(x) if isinstance(x, list) else x)
     result_df = splt_tax.groupby('seqId').agg(
         {
             'gtdb_gen_repr': custom_agg
         }
-        ).reset_index()
+    ).reset_index()
 
     mapping_dict = dict(zip(result_df['seqId'], result_df['gtdb_gen_repr']))
     splt_tax['gtdb_gen_repr'] = splt_tax['seqId'].map(mapping_dict)
@@ -377,7 +375,7 @@ def map_seq_to_ncbi_tax_level_and_id(abd_tab, tax_col, seqId, tax_scheme, tax_de
     if get_chiildren:
         ncbi_parent_to_children = {}
         ncbi_nodes_dict = get_ncbi_nodes_dict()
-        species_df = splt_tax[ splt_tax['ncbi_tax_level'] == "genus" ]  # | (splt_tax['ncbi_tax_level'] == "mspecies")          NOTE: Should this be an option for the user ? 
+        species_df = splt_tax[splt_tax['ncbi_tax_level'] == "genus"]  # | (splt_tax['ncbi_tax_level'] == "mspecies")   NOTE: Should this be an option for the user ?
 
         for potent_parent in species_df["ncbi_tax_id"]:
             potent_parent = str(int(potent_parent))
@@ -403,11 +401,11 @@ def map_seq_to_ncbi_tax_level_and_id(abd_tab, tax_col, seqId, tax_scheme, tax_de
 
         repr_genomes_present = repr_genomes_present + \
             [
-                x 
-                for item in children_df['gtdb_gen_repr'].to_list() 
+                x
+                for item in children_df['gtdb_gen_repr'].to_list()
                 if not (
                     isinstance(item, float) and np.isnan(item)
-                ) 
+                )
                 for x in item
             ]
 
@@ -587,7 +585,7 @@ def is_tab_separated(my_abd_tab, tax_col):
             skiprows=number_of_commented_lines)
     except BaseException:
         logging.error(
-            """The OTU table provided is not a tab or a comma separated file. 
+            """The OTU table provided is not a tab or a comma separated file.
             Please convert your OTU table to .tsv or .csv format."""
         )
 

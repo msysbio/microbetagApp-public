@@ -1,22 +1,14 @@
 from flask import Flask, jsonify, flash, request, session, send_file
 from flask_caching import Cache
-# from werkzeug.utils import secure_filename
 import json
 import os
-import logging
+from microbetag.scripts.logger import setup_logger
 import pandas as pd
 import microbetag.microbetag as microbetag
 import microbetag.scripts.db_functions as db_functions
 from datetime import datetime
-import zipfile
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(levelname)s %(message)s',
-                    handlers=[
-                        logging.FileHandler('app.log'),
-                        logging.StreamHandler()
-                    ]
-                    )
+
 # Interface for user-server
 UPLOAD_FOLDER = '/tmp'
 
@@ -27,6 +19,13 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1000 * 1000
 app.secret_key = "\xf0+\x91\xe0c\xb8ov\xf3c\xc7b#mS\xbc\xf1\xdd\xb2\x06\x8an*\xc0"
 
 cache = Cache(app, config={"CACHE_TYPE": "simple", "CACHE_DEFAULT_TIMEOUT": 20})
+
+# Create the log file path
+log_dir = "/tmp"
+logfile = os.path.join(log_dir, "log.txt")
+
+# Setup logger using the function from logger.py
+logger = setup_logger(logfile)
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -46,21 +45,18 @@ def phen_traits(gtdb_genome_id="GCF_002550015.1"):
         return message
     else:
         return jsonify(phen_traits)
-        # return phen_traits
 
 
 @app.route('/ncbiTaxId-to-genomeId/<int:ncbiTaxId>', methods=['GET'])
 def get_related_genomes(ncbiTaxId=1598):
     q = db_functions.get_genomes_for_ncbi_tax_id(ncbiTaxId)
     return jsonify(q)
-    # return q
 
 
 @app.route('/genome-complements/<string:beneficiary_genome>/<string:donor_genome>', methods=['GET'])
 def genomes_complements(beneficiary_genome="GCA_011364525.1", donor_genome="GCA_002980625.1"):
     """
     Gets complements that a donor can provide to a baneficiary genome.
-
     """
     r = db_functions.get_complements_for_pair_of_genomes(beneficiary_genome, donor_genome)
     d = {}
@@ -75,22 +71,20 @@ def genomes_complements(beneficiary_genome="GCA_011364525.1", donor_genome="GCA_
         d["complements"][counter]["complete-alternative"] = case[0][2]
         d["complements"][counter]["coloured-map"] = case[0][3]
         counter += 1
-    # return d
     return jsonify(d)
 
 
 @app.route('/complements/<string:beneficiary_ncbi_tax_id>/<string:donor_ncbi_tax_id>', methods=['GET'])
 def ncbi_ids_complements(beneficiary_ncbi_tax_id="2184738", donor_ncbi_tax_id="86180"):
     q = db_functions.get_complements_for_pair_of_ncbiIds(beneficiary_ncbi_tax_id, donor_ncbi_tax_id)
-    # return q
     return jsonify(q)
 
 
 @app.route('/seed-complements/<string:beneficiaryId>/<string:donorId>/<string:typeCategory>', methods=['GET'])
 def seed_complements(beneficiaryId="2184738", donorId="86180", typeCategory="ncbiTaxonomyIds"):
     q = db_functions.get_paired_seed_complements(beneficiary=beneficiaryId, donor=donorId, type=typeCategory)
-    # return jsonify(Q)
-    return q
+    return jsonify(q)
+
 
 @app.route('/seed-scores/<string:ncbiId_A>/<string:ncbiId_B>', methods=['GET'])
 def seed_scores(ncbiId_A="86180", ncbiId_B="2184738"):
@@ -109,7 +103,6 @@ def seed_scores(ncbiId_A="86180", ncbiId_B="2184738"):
     d[1]["A"] = ncbiId_B
     d[1]["B"] = ncbiId_A
     d[1]["scores"] = db_functions.scores_to_dict(b2a)
-    # return d
     return jsonify(d)
 
 
@@ -144,70 +137,74 @@ def upload_dev():
         os.mkdir(out_dir)
 
         # Parse user's input
-        json_array = request.get_json()
+        users_input = request.get_json()
+        logger.info("MGG sends following params", users_input["inputParameters"])
 
-        data = json_array["data"]
+        data = users_input["data"]
         data = pd.DataFrame(data)  # pd.read_json(data)
 
-        if data.shape[0] > 1000 and "network" not in json_array:
+        if data.shape[0] > 1000 and "network" not in users_input:
             return ValueError("""
-                              Your abundance table consists of more than 1000 sequences. 
+                              Your abundance table consists of more than 1000 sequences.
                               Please build a co-occurrence network either using the microbetag_prep Docker image or in any way of your choice
                               and submit again your job providing it too.
                               """)
 
-        data.iloc[0, 0] = "seqId"
-        data.iloc[0, -1] = "taxonomy"
-
         # CytoApp will provide a list of args while API is better to give a dictionary in terms of user friendliness
-        arguments_list = [
-            "input_category", "taxonomy", "delimiter",
-            "phenDB", "faprotax", "pathway_complement", "seed_scores",
-            "get_children", "manta", "sensitive", "heterogeneous",
-        ]
-        if isinstance(json_array["inputParameters"], list):
+        if isinstance(users_input["inputParameters"], list):
+            # If user does not set an argument MGG will set it as false
             args = {}
-            for i, j in zip(arguments_list, json_array["inputParameters"]):
-                if j == "true":
-                    j = True
-                args[i] = j
+            for arg in users_input["inputParameters"]:
+                argument, value = arg.split(":")
+                logger.info(argument)
+                logger.info(value)
+                if value == "true":
+                    evalue = True
+                elif value == "false":
+                    evalue = False
+                else:
+                    evalue = value
+                args[argument] = evalue
         else:
-            args = json_array["inputParameters"]
+            args = users_input["inputParameters"]
+
+        logger.info("haris>", args)
+
+        if "network" in users_input:
+            # Skip header line
+            network = pd.DataFrame(users_input["network"][1:])
+            network_path = os.path.join(out_dir, "edgelist.tsv")
+            network.to_csv(network_path, sep='\t', header=False, index=False)
+            edge_list_file = network_path
+        else:
+            edge_list_file = None
+
+        if "metadata" in users_input:
+            metadata = users_input["metadata"]
+            metadata_path = os.path.join(out_dir, "edgelist.tsv")
+            metadata.to_csv(metadata_path, sep='\t', header=False, index=False)
+            metadata_file = metadata_path
+        else:
+            metadata_file = None
 
         # Write the user's abundance table as a .tsv file
         abundance_table = os.path.join(out_dir, "abundance_table.tsv")
+        data.iloc[0, 0] = "seqId"
+        data.iloc[0, -1] = "taxonomy"
         data.to_csv(abundance_table, sep='\t', header=False, index=False)
 
-        if "metadata" in json_array:
-            # [TODO]: check if an empty metadata entry is a nonetype or a string of 0 length
-            metadata_table = os.path.join(out_dir, "metadata.tsv")
-            metadata_table.to_csv(metadata_table, sep="\t", header=False, index=False)
-
         # run microbetag
-        logging.info(json_array["inputParameters"])
-
-        annotated_network = microbetag.main(out_dir, args, abundance_table)
-
-        # # Zip file Initialization and you can change the compression type
-        # zipfolder = zipfile.ZipFile('microbetag.zip', 'w', compression=zipfile.ZIP_STORED)
-
-        # # zip all the files which are inside in the folder
-        # for root, dirs, files in os.walk(out_dir):
-        #     for file in files:
-        #         zipfolder.write(os.path.join(out_dir, file))
-        # zipfolder.close()
-
-        # return send_file(
-        #     'microbetag.zip',
-        #     mimetype='zip',
-        #     attachment_filename='microbetag.zip',
-        #     as_attachment=True
-        # )
-
-        # # Delete the zip file if not needed
-        # os.remove("microbetag.zip")
-
-        return annotated_network
+        try:
+            annotated_network = microbetag.main(out_dir=out_dir,
+                                                cfg=args,
+                                                abundance_table_file=abundance_table,
+                                                edge_list_file=edge_list_file,
+                                                metadata_file=metadata_file,
+                                                logger=logger)
+            return annotated_network
+        except Exception as e:
+            logger.error(e)
+            return jsonify({'status': 'error', 'message': str(e)})
 
 
 @app.route('/upload-abundance-table', methods=['GET', 'POST'])
