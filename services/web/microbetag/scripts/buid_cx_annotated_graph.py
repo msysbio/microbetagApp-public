@@ -60,7 +60,7 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
         {"applies_to": "edge_table", "n": "shared name"},
         {"applies_to": "edge_table", "n": "name"},
         {"applies_to": "edge_table", "n": "interaction type"},
-        {"applies_to": "edge_table", "n": "weight::weight", "d": "double"}  # flashweave score
+        {"applies_to": "edge_table", "n": "microbetag::weight", "d": "double"}  # flashweave score
     ]
 
     """CHILDREN GENOMES AND NCBI IDS"""
@@ -274,7 +274,7 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
         edge = {"@id": edge_counter, "s": id_a, "t": id_b, "i": "cooccurrence/depletion"}
         edges["edges"].append(edge)
 
-        edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "weight::weight", "v": str(case["score"]), "d": "double"})
+        edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "microbetag::weight", "v": str(case["score"]), "d": "double"})
         if float(case["score"]) > 0:
             edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "shared name", "v": " ".join([case["node_a"], "(cooccurss with)", case["node_b"]]), "d": "string"})
             edgeAttributes["edgeAttributes"].append({"po": edge_counter, "n": "interaction type", "v": "cooccurrence", "d": "string"})
