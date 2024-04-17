@@ -138,17 +138,10 @@ def upload_dev():
 
         # Parse user's input
         users_input = request.get_json()
-        logger.info("MGG sends following params", users_input["inputParameters"])
+        logger.info("MGG sends following params: %s", users_input["inputParameters"])
 
         data = users_input["data"]
         data = pd.DataFrame(data)  # pd.read_json(data)
-
-        if data.shape[0] > 1000 and "network" not in users_input:
-            return ValueError("""
-                              Your abundance table consists of more than 1000 sequences.
-                              Please build a co-occurrence network either using the microbetag_prep Docker image or in any way of your choice
-                              and submit again your job providing it too.
-                              """)
 
         # CytoApp will provide a list of args while API is better to give a dictionary in terms of user friendliness
         if isinstance(users_input["inputParameters"], list):
@@ -169,6 +162,16 @@ def upload_dev():
             args = users_input["inputParameters"]
 
         logger.info("haris>", args)
+
+        # Check whether the analysis is possible through the server
+        if data.shape[0] > 1000:
+            accepted_tax_schemes = ["GTDB", "Silva", "microbetag_prep"]
+            if "network" not in users_input or args["taxonomy"] not in accepted_tax_schemes:
+                return ValueError("""
+                                Your abundance table consists of more than 1000 sequences.
+                                Please build a co-occurrence network either using the microbetag_prep Docker image or in any way of your choice
+                                and submit again your job providing it too.
+                                """)
 
         if "network" in users_input:
             # Skip header line
