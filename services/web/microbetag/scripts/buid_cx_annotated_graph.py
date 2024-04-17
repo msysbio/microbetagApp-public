@@ -152,8 +152,8 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
     """MANTA CLUSTERS"""
     if cfg["manta"]:
         cartesianLayout = {}; cartesianLayout["cartesianLayout"] = []
-        m1 = {"applies_to": "node_table", "n": "::".join(["manta", "cluster"]), "d": "double"}
-        m2 = {"applies_to": "node_table", "n": "::".join(["manta", "assignment"]), "d": "string"}
+        m1 = {"applies_to": "node_table", "n": "::".join(["microbetag", "cluster"]), "d": "integer"}
+        m2 = {"applies_to": "node_table", "n": "::".join(["microbetag", "mantaAssignment"]), "d": "string"}
         cyTableColumns.append(m1)
         cyTableColumns.append(m2)
         manta_output_file = "/".join([out_dir, 'manta_annotated.cyjs'])
@@ -208,8 +208,8 @@ def build_cx_annotated_graph(edgelist_as_df, edgelist_as_a_list_of_dicts, seq_ma
         # Clusters
         if cfg["manta"]:
             if seq in manta_annotations.keys():
-                nodeAttributes["nodeAttributes"].append({"po": node_counter, "n": "manta::cluster", "v": str(manta_annotations[seq]["cluster"]), "d": "double"})
-                nodeAttributes["nodeAttributes"].append({"po": node_counter, "n": "manta::assignment", "v": manta_annotations[seq]["assignment"], "d": "string"})
+                nodeAttributes["nodeAttributes"].append({"po": node_counter, "n": "microbetag::cluster", "v": str(int(manta_annotations[seq]["cluster"])), "d": "integer"})
+                nodeAttributes["nodeAttributes"].append({"po": node_counter, "n": "microbetag::mantaAssignment", "v": manta_annotations[seq]["assignment"], "d": "string"})
                 cartesianLayout["cartesianLayout"].append({"node": node_counter, "x": manta_annotations[seq]["position"]["x"], "y": manta_annotations[seq]["position"]["y"]})
 
         if isinstance(case["ncbi_tax_id"].item(), pd._libs.missing.NAType):
