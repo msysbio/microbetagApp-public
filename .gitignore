@@ -1,3 +1,6 @@
 services/db/data
 services/db/tmp
 __pycache__
+build_annotated_graph/
+updated_non_seedsets_of_interest.pckl
+*_ncbiIds.csv
