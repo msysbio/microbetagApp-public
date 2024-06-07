@@ -8,3 +8,4 @@ updated_non_seedsets_of_interest.pckl
 *.key
 *.csr
 *.crt
+.env.dev
