@@ -1,0 +1,177 @@
+# ###########
+# # BUILDER #
+# ###########
+
+# FROM python:3.11.3-slim-buster as builder
+
+# # install system dependencies
+# RUN apt-get update 
+# RUN apt-get install -y --no-install-recommends gcc
+
+# # lint
+# RUN pip install --upgrade pip
+# RUN pip install flake8==6.0.0
+# COPY . /usr/src/app/
+
+# # By default, Flake8 has a list of error codes that it ignores. 
+# # The list used by a version of Flake8 may be different than the list used by a different version
+# RUN flake8 --ignore=E501,E702,F401,F403,F405,F841,W504 ./usr/src/app
+
+# # install python dependencies
+# COPY ./requirements.txt .
+# RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements.txt
+
+# # Change perimissions for /opt
+# RUN chmod +rx /opt
+
+# #########
+# # FINAL #
+# #########
+
+# # pull official base image
+# FROM python:3.11.3-slim-buster
+
+# # create directory for the app user
+# RUN mkdir -p /home/app
+
+# # create the app user
+# RUN addgroup --system app && adduser --system --group app
+
+# # create the appropriate directories
+# ENV HOME=/home/app
+# ENV APP_HOME=/home/app/web
+# RUN mkdir $APP_HOME
+
+# # install dependencies
+# RUN apt-get update && apt-get install -y --no-install-recommends netcat vim wget git
+
+# COPY --from=builder /usr/src/app/wheels /wheels
+# COPY --from=builder /usr/src/app/requirements.txt .
+# RUN pip install --upgrade pip
+# RUN pip install --no-cache /wheels/*
+
+# # install Julia and FlashWeave
+# WORKDIR /opt
+# RUN wget https://julialang-s3.julialang.org/bin/linux/x64/1.7/julia-1.7.1-linux-x86_64.tar.gz && \
+#     tar -zxvf julia-1.7.1-linux-x86_64.tar.gz && \
+#     echo "export PATH=/opt/julia-1.7.1/bin:$PATH" >> /home/.bashrc
+
+# ENV PATH="/opt/julia-1.7.1/bin:${PATH}"
+
+# # Get FlashWeave
+# RUN /opt/julia-1.7.1/bin/julia -e 'using Pkg;Pkg.add("FlashWeave")'
+
+# # Get NCBI taxdump
+# WORKDIR /opt/ncbi
+# RUN wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz && \
+#     tar -zxvf taxdump.tar.gz && \
+#     mv nodes.dmp tmp && \
+#     rm *.dmp *.tar.gz &&\
+#     mv tmp nodes.tmp
+
+# # Get manta and fuzz
+# WORKDIR $APP_HOME
+# RUN python -m pip install fuzzywuzzy
+# RUN python -m pip install git+https://github.com/hariszaf/manta.git@scipy-version 
+
+# # copy project
+# COPY . $APP_HOME
+
+# # # chown all the files to the app user -- UNMUTE THIS ONCE WE ARE IN THE PRODUCTION STAGE
+# # RUN chown -R app:app $APP_HOME
+
+# # # change to the app user
+# # USER app
+# WORKDIR $APP_HOME
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################
+# SINGLE-STAGE DOCKERFILE
+########################
+
+FROM python:3.11.3-slim-buster
+
+# Install system dependencies, including wget, gcc, and Julia
+RUN apt-get update && apt-get install -y --no-install-recommends gcc wget netcat vim git
+
+# Install Python dependencies
+RUN pip install --upgrade pip flake8==6.0.0
+
+# Set environment variables and directories
+ENV HOME=/home/app
+ENV APP_HOME=/home/app/web
+RUN mkdir -p $APP_HOME
+
+# Install Julia
+WORKDIR /opt
+RUN wget https://julialang-s3.julialang.org/bin/linux/x64/1.7/julia-1.7.1-linux-x86_64.tar.gz \
+    && tar -zxvf julia-1.7.1-linux-x86_64.tar.gz \
+    && rm julia-1.7.1-linux-x86_64.tar.gz \
+    && echo "export PATH=/opt/julia-1.7.1/bin:$PATH" >> /etc/bash.bashrc
+
+# Set PATH for Julia
+ENV PATH="/opt/julia-1.7.1/bin:${PATH}"
+
+# Install FlashWeave with Julia
+RUN julia -e 'using Pkg; Pkg.add("FlashWeave")'
+
+# Get NCBI taxdump
+WORKDIR /opt/ncbi
+RUN wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz \
+    && tar -zxvf taxdump.tar.gz \
+    && mv nodes.dmp tmp \
+    && rm *.dmp *.tar.gz \
+    && mv tmp nodes.tmp
+
+# Install additional Python packages (manta, fuzzywuzzy)
+WORKDIR /usr/src/app
+RUN pip install fuzzywuzzy \
+    && pip install git+https://github.com/hariszaf/manta.git@scipy-version
+
+
+# Copy requirements
+COPY ./requirements.txt /tmp/requirements.txt
+
+
+# Install Python dependencies
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r /tmp/requirements.txt
+RUN pip install --no-cache /wheels/*
+
+
+# Copy source code
+COPY . /usr/src/app/
+
+# Lint code
+RUN flake8 --ignore=E501,E702,F401,F403,F405,F841,W504 /usr/src/app
+
+
+# Copy project files to the appropriate directory
+COPY . $APP_HOME
+
+# # Change ownership to app user -- uncomment in production
+# # RUN chown -R app:app $APP_HOME
+
+# # Change to the app user -- uncomment in production
+# # USER app
+WORKDIR $APP_HOME
